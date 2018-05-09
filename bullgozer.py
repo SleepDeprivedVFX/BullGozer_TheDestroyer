@@ -363,6 +363,11 @@ class gozer_engine(QtCore.QThread):
                             self.signals.files_sig_debug.emit(files)
                             self.signals.folders_sig_debug.emit(dirs)
                             self.catalog_files(root=roots, files=files)
+                            if not self.oh_shit:
+                                break
+
+                    if not self.oh_shit:
+                        break
                 self.oh_shit = False
         self.signals.log_dict_sig_debug.emit(self.cache_catalog)
 
@@ -396,10 +401,13 @@ class gozer_engine(QtCore.QThread):
                 self.signals.log_sig_debug.emit('Checking for cache files...')
                 for ext in self.caches:
                     if str(filename).endswith(ext):
-                        self.signals.log_sig.emit('Cache Found!: %s' % filename)
+                        self.signals.log_sig_debug.emit('Cache Found!: %s' % filename)
                         check_path = root + '/' + filename
                         sequence = self.getSeqInfo(check_path)
                         self.cache_catalog[filename] = sequence
+
+                if not self.oh_shit:
+                    break
 
 
 # ----------------------------------------------------------------------------------------------
