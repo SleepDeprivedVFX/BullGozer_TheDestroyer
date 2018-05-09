@@ -31,6 +31,7 @@ from ui import bullgozer_ui as bgi
 from PySide import QtGui, QtCore
 import json
 import re
+import glob
 
 # -----------------------------------------------------
 # Rebuilder
@@ -358,7 +359,7 @@ class gozer_engine(QtCore.QThread):
                             # RE will need to be used to make sequence detection and version filtering work.
                             # Collapsed sequence file names will need to be saved in the JSON
                             self.signals.log_sig_debug.emit('-------------------------------------------')
-                            self.signals.roots_sig_debug.emit(roots)
+                            self.signals.roots_sig.emit('Search root: %s' % roots)
                             self.signals.files_sig_debug.emit(files)
                             self.signals.folders_sig_debug.emit(dirs)
                             self.catalog_files(root=roots, files=files)
@@ -368,24 +369,36 @@ class gozer_engine(QtCore.QThread):
     def destroy(self):
         pass
 
-    def sequence_check(self, root=None, filename=None):
-        if root and filename:
-            self.signals.log_sig_debug.emit('Checking for sequences...')
-            check_file = root + '/' + filename
-            if os.path.exists(check_file):
-                self.signals.log_sig_debug.emit('Filepath exists...')
-                seq = re.findall(r'\d+', check_file)[-1]
-                self.signals.log_sig.emit('Sequence Detect: %s' % seq)
-        return seq
+    def getSeqInfo(self, file):
+        if file:
+            try:
+                dir = os.path.dirname(file)
+                file = os.path.basename(file)
+                segNum = re.findall(r'\d+', file)[-1]
+                numPad = len(segNum)
+                baseName = file.split(segNum)[0]
+                fileType = file.split('.')[-1]
+                globString = baseName
+                for i in range(0, numPad):
+                    globString += '?'
+                theGlob = glob.glob(dir + '\\' + globString + file.split(segNum)[1])
+                numFrames = len(theGlob)
+                firstFrame = theGlob[0]
+                lastFrame = theGlob[-1]
+                return [baseName, numPad, fileType, numFrames, firstFrame, lastFrame]
+            except IndexError, e:
+                self.signals.log_sig_debug.emit('No Sequence info found: %s %s' % (file, e))
 
     def catalog_files(self, root=None, files=None):
         if root and files:
             for filename in files:
                 self.signals.file_sig_debug.emit(filename)
-                self.signals.log_sig.emit('Checking for cache files...')
+                self.signals.log_sig_debug.emit('Checking for cache files...')
                 for ext in self.caches:
                     if str(filename).endswith(ext):
-                        sequence = self.sequence_check(root=root, filename=filename)
+                        self.signals.log_sig.emit('Cache Found!: %s' % filename)
+                        check_path = root + '/' + filename
+                        sequence = self.getSeqInfo(check_path)
                         self.cache_catalog[filename] = sequence
 
 
