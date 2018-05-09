@@ -205,6 +205,7 @@ class gozer_signal(QtCore.QObject):
     file_sig = QtCore.Signal(float)
     load_sig = QtCore.Signal(str)
     oh_shit_sig = QtCore.Signal(str)
+    remote_log = QtCore.Signal(list)
 
 
 # -----------------------------------------------------
@@ -249,6 +250,7 @@ class gozer_engine(QtCore.QThread):
 
     def kill(self):
         self.oh_shit = False
+
     # --------------------------------------------------------------------------------------------------
     # Get Projects
     # --------------------------------------------------------------------------------------------------
@@ -350,6 +352,7 @@ class gozer_engine(QtCore.QThread):
                         # Collapsed sequence file names will need to be saved in the JSON
                         # logger.debug('SEEK: files: %s' % files)
                         self.catalog_files(root=roots, files=files)
+                        self.signals.remote_log.emit(files)
 
     def destroy(self):
         pass
@@ -376,10 +379,11 @@ class bullgozer(QtGui.QWidget):
         self.ui = bgi.Ui_Form()
         self.ui.setupUi(self)
 
-        self.signal = gozer_signal()
         self.gozer_stream = gozer_output_stream()
         self.gozer_stream.edit = self.ui.output_log
         logger.getLogger().addHandler(self.gozer_stream)
+
+        self.gozer_engine.signals.remote_log.connect(self.update_log)
 
         # self.ui.seek_btn.clicked.connect(lambda: self.gozer_engine.seek(root=root_drive,
         #                                                                 projects=self.gozer_engine.get_projects()))
@@ -388,14 +392,16 @@ class bullgozer(QtGui.QWidget):
         self.ui.seek_btn.clicked.connect(self.start_seeking)
         self.ui.oh_shit_btn.clicked.connect(self.oh_shit)
 
+    def update_log(self, message=None):
+        if message:
+            logger.debug(message)
+
     def oh_shit(self):
         # These could both be replaced with signals, thus eliminating the direct call
         # self.gozer_engine.oh_shit = True
-        self.signal.oh_shit_sig.emit('clicked()')
+        self.signal.oh_shit_sig.emit('clicked dookie')
 
     def start_seeking(self):
-        # self.gozer_engine.start()
-        # self.gozer_engine.seek()
         if not self.gozer_engine.isRunning():
             self.gozer_engine.oh_shit = True
             # self.signal.load_sig.emit('clicked()')
