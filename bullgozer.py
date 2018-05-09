@@ -184,12 +184,16 @@ shotgun_conf = {
 # Setup Logging System
 # ----------------------------------------------------------------------------------------------
 def init_log(filename="BullGozer.log"):
+    if cfg_debug_logging == 'True':
+        level = logger.DEBUG
+    else:
+        level = logger.INFO
     try:
-        logger.basicConfig(level=logger.DEBUG, filename=filename, filemode='w+')
+        logger.basicConfig(level=level, filename=filename, filemode='w+')
     except IOError, e:
         raise e
     return logger
-# Breaks on a network.  Need to make sure folders exist and that paths are passable across networks
+
 logger = init_log(logfile)
 
 logger.debug(prelog)
@@ -201,11 +205,19 @@ logger.info('BullGozer Started...')
 # -----------------------------------------------------
 class gozer_signal(QtCore.QObject):
     log_sig = QtCore.Signal(str)
-    overall_sig = QtCore.Signal(float)
-    file_sig = QtCore.Signal(float)
-    load_sig = QtCore.Signal(str)
-    oh_shit_sig = QtCore.Signal(str)
-    remote_log = QtCore.Signal(list)
+    oh_shit_sig = QtCore.Signal(bool)
+    files_sig = QtCore.Signal(list)
+    file_sig = QtCore.Signal(str)
+    folders_sig = QtCore.Signal(list)
+    project_sig = QtCore.Signal(dict)
+    roots_sig = QtCore.Signal(str)
+
+    log_sig_debug = QtCore.Signal(str)
+    files_sig_debug = QtCore.Signal(list)
+    file_sig_debug = QtCore.Signal(str)
+    folders_sig_debug = QtCore.Signal(list)
+    log_dict_sig_debug = QtCore.Signal(dict)
+    roots_sig_debug = QtCore.Signal(str)
 
 
 # -----------------------------------------------------
@@ -239,7 +251,7 @@ class gozer_engine(QtCore.QThread):
         self.oh_shit_sig = self.signals.oh_shit_sig.connect(self.kill)
 
         # Storage Variables
-        self.file_catalog = {}
+        self.cache_catalog = {}
         self.oh_shit = True
 
     def run(self, *args, **kwargs):
@@ -328,40 +340,53 @@ class gozer_engine(QtCore.QThread):
         """
         # logger.info('Begin seeking...')
         root = root_drive
-        # while self.oh_shit:
-        try:
-            projects = self.get_projects()
-        except Exception, e:
-            print 'ERROR'
-            # logger.error('Get Projects done fucked up! %s' % e)
-        if root and projects:
-            # logger.debug('Root and Projects is True')
-            for project in projects:
-                path = root + '/' + project
-                # logger.debug('SEEK: path = %s' % path)
-                if os.path.exists(path):
-                    # logger.debug('SEEK: Path Exists!')
-                    walk = os.walk(path)
-                    for roots, dirs, files in walk:
-                        # The Roots will be saved as the name of the JSON entry, thus a path can easily be built
-                        # logger.debug('SEEK: Roots: %s' % roots)
-                        # The Dirs, I'm not entirely certain yet.....  Perhaps restrictions could be built in here.
-                        # logger.debug('SEEK: Dirs: %s' % dirs)
-                        # Files.  Searches need to be done of every file.
-                        # RE will need to be used to make sequence detection and version filtering work.
-                        # Collapsed sequence file names will need to be saved in the JSON
-                        # logger.debug('SEEK: files: %s' % files)
-                        self.catalog_files(root=roots, files=files)
-                        self.signals.remote_log.emit(files)
+        while self.oh_shit:
+            try:
+                projects = self.get_projects()
+            except Exception, e:
+                self.signals.log_sig_debug.emit('Get Projects done fucked\' up! %s' % e)
+            if root and projects:
+                self.signals.log_sig_debug.emit('Root and Project are True')
+                for project in projects:
+                    path = root + '/' + project
+                    if os.path.exists(path):
+                        walk = os.walk(path)
+                        for roots, dirs, files in walk:
+                            # The Roots will be saved as the name of the JSON entry, thus a path can easily be built
+                            # The Dirs, I'm not entirely certain yet.....  Perhaps restrictions could be built in here.
+                            # Files.  Searches need to be done of every file.
+                            # RE will need to be used to make sequence detection and version filtering work.
+                            # Collapsed sequence file names will need to be saved in the JSON
+                            self.signals.log_sig_debug.emit('-------------------------------------------')
+                            self.signals.roots_sig_debug.emit(roots)
+                            self.signals.files_sig_debug.emit(files)
+                            self.signals.folders_sig_debug.emit(dirs)
+                            self.catalog_files(root=roots, files=files)
+                self.oh_shit = False
+        self.signals.log_dict_sig_debug.emit(self.cache_catalog)
 
     def destroy(self):
         pass
 
+    def sequence_check(self, root=None, filename=None):
+        if root and filename:
+            self.signals.log_sig_debug.emit('Checking for sequences...')
+            check_file = root + '/' + filename
+            if os.path.exists(check_file):
+                self.signals.log_sig_debug.emit('Filepath exists...')
+                seq = re.findall(r'\d+', check_file)[-1]
+                self.signals.log_sig.emit('Sequence Detect: %s' % seq)
+        return seq
+
     def catalog_files(self, root=None, files=None):
         if root and files:
             for filename in files:
-                # logger.info('CATALOG: filename: %s' % filename)
-                self.file_catalog[filename] = 'shit: %s' % filename
+                self.signals.file_sig_debug.emit(filename)
+                self.signals.log_sig.emit('Checking for cache files...')
+                for ext in self.caches:
+                    if str(filename).endswith(ext):
+                        sequence = self.sequence_check(root=root, filename=filename)
+                        self.cache_catalog[filename] = sequence
 
 
 # ----------------------------------------------------------------------------------------------
@@ -383,23 +408,36 @@ class bullgozer(QtGui.QWidget):
         self.gozer_stream.edit = self.ui.output_log
         logger.getLogger().addHandler(self.gozer_stream)
 
-        self.gozer_engine.signals.remote_log.connect(self.update_log)
+        # Connect Logger Signals
+        self.gozer_engine.signals.files_sig.connect(self.update_log)
+        self.gozer_engine.signals.file_sig.connect(self.update_log)
+        self.gozer_engine.signals.folders_sig.connect(self.update_log)
+        self.gozer_engine.signals.roots_sig.connect(self.update_log)
+        self.gozer_engine.signals.log_sig.connect(self.update_log)
+        self.gozer_engine.signals.files_sig_debug.connect(self.update_log_debug)
+        self.gozer_engine.signals.file_sig_debug.connect(self.update_log_debug)
+        self.gozer_engine.signals.folders_sig_debug.connect(self.update_log_debug)
+        self.gozer_engine.signals.roots_sig_debug.connect(self.update_log_debug)
+        self.gozer_engine.signals.log_sig_debug.connect(self.update_log_debug)
+        self.gozer_engine.signals.log_dict_sig_debug.connect(self.update_log_debug)
 
-        # self.ui.seek_btn.clicked.connect(lambda: self.gozer_engine.seek(root=root_drive,
-        #                                                                 projects=self.gozer_engine.get_projects()))
-        # self.ui.seek_btn.clicked.connect(QtCore.SIGNAL('clicked()'), self.start_seeking)
-        # self.signal.load_sig.connect(self.ui.seek_btn, QtCore.SIGNAL('clicked()'))
         self.ui.seek_btn.clicked.connect(self.start_seeking)
         self.ui.oh_shit_btn.clicked.connect(self.oh_shit)
 
     def update_log(self, message=None):
+        if message:
+            logger.info(message)
+
+    def update_log_debug(self, message=None):
         if message:
             logger.debug(message)
 
     def oh_shit(self):
         # These could both be replaced with signals, thus eliminating the direct call
         # self.gozer_engine.oh_shit = True
-        self.signal.oh_shit_sig.emit('clicked dookie')
+        if self.gozer_engine.isRunning():
+            self.gozer_engine.oh_shit = False
+            self.gozer_engine.quit()
 
     def start_seeking(self):
         if not self.gozer_engine.isRunning():
