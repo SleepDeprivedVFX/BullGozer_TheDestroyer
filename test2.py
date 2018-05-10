@@ -23,7 +23,33 @@ if __name__ == '__main__':
     print t
 
 
-
+def getSeqInfo(self, file):
+    if file:
+        try:
+            dir = os.path.dirname(file)
+            self.signals.log_sig.emit('getSeqInfo: dir: %s' % dir)
+            file = os.path.basename(file)
+            self.signals.log_sig.emit('getSeqInfo: file: %s' % file)
+            segNum = re.findall(r'\d+', file)[-1]
+            self.signals.log_sig.emit('getSeqInfo: segNum: %s' % segNum)
+            numPad = len(segNum)
+            baseName = file.split(segNum)[0]
+            self.signals.log_sig.emit('getSeqInfo: basename: %s' % baseName)
+            fileType = file.split('.')[-1]
+            self.signals.log_sig.emit('getSeqInfo: fileType: %s' % fileType)
+            globString = baseName
+            self.signals.log_sig.emit('getSeqInfo: globString: %s' % globString)
+            for i in range(0, numPad):
+                globString += '?'
+            self.signals.log_sig.emit('getSeqInfo: globString 2: %s' % globString)
+            theGlob = glob.glob(dir + '\\' + globString + file.split(segNum)[1])
+            self.signals.log_sig.emit('getSeqInfo: theGlob: %s' % theGlob)
+            numFrames = len(theGlob)
+            firstFrame = theGlob[0]
+            lastFrame = theGlob[-1]
+            return [baseName, numPad, fileType, numFrames, firstFrame, lastFrame]
+        except IndexError, e:
+            self.signals.log_sig_debug.emit('No Sequence info found: %s %s' % (file, e))
 
 
 

@@ -69,17 +69,20 @@ class rebuilder():
         search_folders = 'renders,playblasts'
         working_files = '.nk,.mb,.ma,.mud,.hip,.psd,.psb,.ztl'
         programs = 'maya,nuke,zbrush,mudbox,houdini,softimage,photoshop'
+        keep_count = 5
 
         debug_logging = True
 
         Disabled_Projects = True
         project_list = ''
+        folder_override = ''
 
         raw_config.add_section('Parameters')
         raw_config.set('Parameters', 'programs', programs)
         raw_config.set('Parameters', 'working_files', working_files)
         raw_config.set('Parameters', 'search_folders', search_folders)
         raw_config.set('Parameters', 'caches', caches)
+        raw_config.set('Parameters', 'keep_count', keep_count)
 
         raw_config.add_section('Shotgun')
         raw_config.set('Shotgun', 'shotgun_key', sg_key)
@@ -98,6 +101,7 @@ class rebuilder():
         raw_config.add_section('Root')
         raw_config.set('Root', 'Disabled_Projects', Disabled_Projects)
         raw_config.set('Root', 'project_list', project_list)
+        raw_config.set('Root', 'folder_override', folder_override)
         logger.info('All variables set')
 
         with open(config_path, 'wb') as config:
@@ -151,6 +155,8 @@ cfg_programs = config_file.get('Parameters', 'programs')
 cfg_debug_logging = config_file.get('Debugger', 'debug_logging')
 cfg_disabled_projects = config_file.get('Root', 'Disabled_Projects')
 cfg_project_list = config_file.get('Root', 'project_list')
+cfg_keep_count = config_file.get('Parameters', 'keep_count')
+cfg_folder_override = config_file.get('Root', 'folder_override')
 prelog += 'Configuration variables set.\n'
 
 osSystem = platform.system()
@@ -211,6 +217,7 @@ class gozer_signal(QtCore.QObject):
     file_sig = QtCore.Signal(str)
     folders_sig = QtCore.Signal(list)
     project_sig = QtCore.Signal(dict)
+    log_dict_sig = QtCore.Signal(dict)
     roots_sig = QtCore.Signal(str)
 
     log_sig_debug = QtCore.Signal(str)
@@ -247,6 +254,8 @@ class gozer_engine(QtCore.QThread):
         self.programs = cfg_programs.split(',')
         self.disabled_projects = bool(cfg_disabled_projects)
         self.project_list = cfg_project_list.split(',')
+        self.keep_count = int(cfg_keep_count)
+        self.folder_override = cfg_folder_override
 
         # Signals
         self.oh_shit_sig = self.signals.oh_shit_sig.connect(self.kill)
@@ -287,6 +296,7 @@ class gozer_engine(QtCore.QThread):
             else:
                 project_list = self.project_list
 
+        # Need to add the Folder Override
         if disabled_projects and not project_list:
             # Here we start with anything not enabled on Shotgun.
             # logger.info('Only disabled projects is checked, and no project list is given.')
@@ -349,66 +359,126 @@ class gozer_engine(QtCore.QThread):
             if root and projects:
                 self.signals.log_sig_debug.emit('Root and Project are True')
                 for project in projects:
-                    path = root + '/' + project
-                    if os.path.exists(path):
-                        walk = os.walk(path)
-                        for roots, dirs, files in walk:
-                            # The Roots will be saved as the name of the JSON entry, thus a path can easily be built
-                            # The Dirs, I'm not entirely certain yet.....  Perhaps restrictions could be built in here.
-                            # Files.  Searches need to be done of every file.
-                            # RE will need to be used to make sequence detection and version filtering work.
-                            # Collapsed sequence file names will need to be saved in the JSON
-                            self.signals.log_sig_debug.emit('-------------------------------------------')
-                            self.signals.roots_sig.emit('Search root: %s' % roots)
-                            self.signals.files_sig_debug.emit(files)
-                            self.signals.folders_sig_debug.emit(dirs)
-                            self.catalog_files(root=roots, files=files)
-                            if not self.oh_shit:
-                                break
+                    if project:
+                        path = root + '/' + project
+                        if os.path.exists(path):
+                            walk = os.walk(path)
+                            for roots, dirs, files in walk:
+                                # The Roots will be saved as the name of the JSON entry, thus a path can easily be built
+                                # The Dirs, I'm not entirely certain yet... Perhaps restrictions could be built in here.
+                                # Files.  Searches need to be done of every file.
+                                # RE will need to be used to make sequence detection and version filtering work.
+                                # Collapsed sequence file names will need to be saved in the JSON
+                                self.signals.log_sig_debug.emit('-' * 125)
+                                self.signals.roots_sig.emit('Search root: %s' % roots)
+                                self.signals.files_sig_debug.emit(files)
+                                self.signals.folders_sig_debug.emit(dirs)
+                                self.catalog_files(root=roots, files=files)
 
+                                # Kill switch
+                                if not self.oh_shit:
+                                    break
+                    # Kill Switch
                     if not self.oh_shit:
                         break
                 self.oh_shit = False
-        self.signals.log_dict_sig_debug.emit(self.cache_catalog)
+                self.signals.log_sig.emit('=' * 125)
+                self.signals.log_sig.emit('REPORT:')
+                self.signals.log_dict_sig.emit(self.cache_catalog)
 
     def destroy(self):
         pass
 
-    def getSeqInfo(self, file):
-        if file:
-            try:
-                dir = os.path.dirname(file)
-                file = os.path.basename(file)
-                segNum = re.findall(r'\d+', file)[-1]
-                numPad = len(segNum)
-                baseName = file.split(segNum)[0]
-                fileType = file.split('.')[-1]
-                globString = baseName
-                for i in range(0, numPad):
-                    globString += '?'
-                theGlob = glob.glob(dir + '\\' + globString + file.split(segNum)[1])
-                numFrames = len(theGlob)
-                firstFrame = theGlob[0]
-                lastFrame = theGlob[-1]
-                return [baseName, numPad, fileType, numFrames, firstFrame, lastFrame]
-            except IndexError, e:
-                self.signals.log_sig_debug.emit('No Sequence info found: %s %s' % (file, e))
-
     def catalog_files(self, root=None, files=None):
+        caches = []
+        working_files = []
         if root and files:
             for filename in files:
                 self.signals.file_sig_debug.emit(filename)
                 self.signals.log_sig_debug.emit('Checking for cache files...')
+                check_path = root + '/' + filename
                 for ext in self.caches:
                     if str(filename).endswith(ext):
                         self.signals.log_sig_debug.emit('Cache Found!: %s' % filename)
-                        check_path = root + '/' + filename
-                        sequence = self.getSeqInfo(check_path)
-                        self.cache_catalog[filename] = sequence
-
+                        sequence = self.get_sequence(filepath=check_path)
+                        if sequence:
+                            caches.append(sequence)
+                for ext in self.working_files:
+                    if str(filename).endswith(ext):
+                        self.signals.log_sig.emit('Working file %s found! %s' % (ext, filename))
+                        versions = self.get_versions(check_path)
+                        # Do something with the data
+                # Kill switch
                 if not self.oh_shit:
                     break
 
+    def get_sequence(self, filepath=None):
+        sequence = None
+        if filepath:
+            try:
+                path = os.path.dirname(filepath)
+                filename = os.path.basename(filepath)
+                seqNum = re.findall(r'\d+', filename)[-1]
+                seqPad = len(seqNum)
+                splitname = filename.split(seqNum)
+                basename = splitname[0]
+                ext = splitname[-1]
+                globname = basename
+                for i in range(0, seqPad):
+                    globname += '?'
+                matched_names = glob.glob(path + '\\' + globname + ext)
+                packed_name = globname.replace('?', '#') + ext
+                frame_count = len(matched_names)
+                seq_list = []
+                for seq in matched_names:
+                    get_nums = re.findall(r'\d+', seq)[-1]
+                    seq_list.append(get_nums)
+                frame_range = '[%s:%s]' % (seq_list[0], seq_list[-1])
+                sequence = {'file': packed_name, 'padding': seqPad, 'total_frames': frame_count,
+                            'frame_range': frame_range}
+                return sequence
+            except IndexError, e:
+                pass
+        return sequence
+
+    def get_versions(self, filepath=None):
+        vers = None
+        self.signals.log_sig_debug.emit('Getting Version Info...')
+        if filepath:
+            try:
+                path = os.path.dirname(filepath)
+                filename = os.path.basename(filepath)
+                versionNum = re.findall(r'(_v\d+|_V\d+)', filename)[-1]
+                versionPad = len(versionNum)
+                splitname = filename.split(versionNum)
+                basename = splitname[0]
+                ext = splitname[-1]
+                globname = basename
+                for i in range(0, versionPad):
+                    globname += '?'
+                versions = glob.glob(path + '\\' + globname + ext)
+                self.signals.log_sig_debug.emit('Discovered versions: %s' % versions)
+                packed_name = globname.replace('?', '#') + ext
+                self.signals.log_sig_debug.emit('Packed name: %s' % packed_name)
+                version_count = len(versions)
+                self.signals.log_sig_debug.emit('Version count: %s' % version_count)
+                all_versions = []
+                keep = []
+                destroy = []
+                keep_count = self.keep_count
+                if version_count > keep_count:
+                    for v in versions:
+                        get_version_nums = re.findall(r'(_v\d+|_V\d+)', v)[-1]
+                        all_versions.append(get_version_nums)
+                    self.signals.log_sig.emit('All Versions: %s' % all_versions)
+                    last = all_versions[-1]
+                    # This needs to have the system from my notes.
+                    # while len(version_count) < keep_count:
+                    #     get_num =
+                return vers
+            except IndexError, e:
+                pass
+        return vers
 
 # ----------------------------------------------------------------------------------------------
 # Start BullGozer
@@ -441,6 +511,7 @@ class bullgozer(QtGui.QWidget):
         self.gozer_engine.signals.roots_sig_debug.connect(self.update_log_debug)
         self.gozer_engine.signals.log_sig_debug.connect(self.update_log_debug)
         self.gozer_engine.signals.log_dict_sig_debug.connect(self.update_log_debug)
+        self.gozer_engine.signals.log_dict_sig.connect(self.update_log)
 
         self.ui.seek_btn.clicked.connect(self.start_seeking)
         self.ui.oh_shit_btn.clicked.connect(self.oh_shit)
