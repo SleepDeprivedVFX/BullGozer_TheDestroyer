@@ -373,7 +373,7 @@ class gozer_engine(QtCore.QThread):
                                 self.signals.roots_sig.emit('Search root: %s' % roots)
                                 self.signals.files_sig_debug.emit(files)
                                 self.signals.folders_sig_debug.emit(dirs)
-                                self.catalog_files(root=roots, files=files)
+                                self.cache_catalog[roots] = self.catalog_files(root=roots, files=files)
 
                                 # Kill switch
                                 if not self.oh_shit:
@@ -384,7 +384,30 @@ class gozer_engine(QtCore.QThread):
                 self.oh_shit = False
                 self.signals.log_sig.emit('=' * 125)
                 self.signals.log_sig.emit('REPORT:')
-                self.signals.log_dict_sig.emit(self.cache_catalog)
+                # self.signals.log_dict_sig.emit(self.cache_catalog)
+                for _root, catalog in self.cache_catalog.items():
+                    self.signals.log_sig.emit('-' * 120)
+                    self.signals.log_sig.emit('ROOT: %s' % _root)
+                    caches = catalog[0]
+                    self.signals.log_sig.emit('CACHES:')
+                    for x in caches:
+                        self.signals.log_sig.emit('%s | TOTAL FRAMES: %s | FRAME RANGE: %s' % (x['file'],
+                                                                                               x['total_frames'],
+                                                                                               x['frame_range']))
+                    working_files = catalog[1]
+                    for entry in working_files:
+                        keep = entry['keep']
+                        destroy = entry['destroy']
+                        totals = entry['total_size']
+                        self.signals.log_sig.emit('KEEP:')
+                        for x in keep:
+                            self.signals.log_sig.emit('%s' % x)
+
+                        self.signals.log_sig.emit('DESTROY:')
+                        for x in destroy:
+                            self.signals.log_sig.emit('%s' % x)
+
+                        self.signals.log_sig.emit('TOTALS: %s' % totals)
 
     def destroy(self):
         pass
@@ -446,17 +469,22 @@ class gozer_engine(QtCore.QThread):
 
     def get_versions(self, filepath=None):
         vers = None
+        all_versions = []
+        keep = {}
+        destroy = {}
+        total_size = 0
+
         self.signals.log_sig_debug.emit('Getting Version Info...')
         if filepath:
             try:
                 path = os.path.dirname(filepath)
                 filename = os.path.basename(filepath)
-                versionNum = re.findall(r'(_v\d+|_V\d+)', filename)[-1]
+                versionNum = re.findall(r'\d+', filename)[-1]
                 versionPad = len(versionNum)
                 splitname = filename.split(versionNum)
                 basename = splitname[0]
                 ext = splitname[-1]
-                globname = basename + '_v'
+                globname = basename
                 for i in range(0, versionPad):
                     globname += '?'
                 versions = glob.glob(path + '\\' + globname + ext)
@@ -465,16 +493,12 @@ class gozer_engine(QtCore.QThread):
                 self.signals.log_sig_debug.emit('Packed name: %s' % packed_name)
                 version_count = len(versions)
                 self.signals.log_sig_debug.emit('Version count: %s' % version_count)
-                all_versions = []
-                keep = []
-                destroy = []
                 keep_count = version_count - self.keep_count + 1
                 self.signals.log_sig_debug.emit('KEEP COUNT: %s' % keep_count)
                 if version_count > keep_count:
                     self.signals.log_sig_debug.emit('Version Count: %s  Keep Count: %s' % (version_count, keep_count))
                     for v in versions:
-                        get_version_nums = re.findall(r'(_v\d+|_V\d+)', v)[-1]
-                        get_version_nums = get_version_nums.lower().strip('_v')
+                        get_version_nums = re.findall(r'\d+', v)[-1]
                         all_versions.append(get_version_nums)
                     self.signals.log_sig.emit('All Versions: %s' % all_versions)
                     desc_versions = sorted(all_versions, reverse=True)
@@ -484,17 +508,27 @@ class gozer_engine(QtCore.QThread):
                         vcount = version_count - 1
                         version_count -= 1
                         current = versions[vcount]
-                        self.signals.log_sig_debug.emit(':::: Current Version: %s' % current)
+                        self.signals.log_sig_debug.emit('CURRENT: Current Version: %s' % current)
                         if os.path.exists(current):
-                            keep.append(current)
+                            keep[current] = os.stat(current).st_size
                             all_versions.remove(all_versions[vcount])
-                            self.signals.log_sig_debug.emit('!!!!!!!!!!! %s Added to Keep' % current)
+                            self.signals.log_sig_debug.emit('KEEP: %s Added to Keep' % current)
+                            self.signals.log_sig_debug.emit('SIZE: %s' % os.stat(current).st_size)
+                            total_size += os.stat(current).st_size
                         # keep.append()
                         # self.signals.log_sig_debug.emit()
-                return vers
+                    for v in all_versions:
+                        current = versions[all_versions.index(v)]
+                        destroy[current] = os.stat(current).st_size
+                else:
+                    for v in versions:
+                        keep[v] = os.stat(v).st_size
+                        self.signals.log_sig_debug.emit('KEEP: %s Added to Keep' % v)
+                        self.signals.log_sig_debug.emit('SIZE: %s' % os.stat(v).st_size)
+                return {'keep': keep, 'destroy': destroy, 'total_size': total_size}
             except IndexError, e:
                 pass
-        return vers
+        return {'keep': keep, 'destroy': destroy, 'total_size': total_size}
 
 # ----------------------------------------------------------------------------------------------
 # Start BullGozer
