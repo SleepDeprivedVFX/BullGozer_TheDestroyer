@@ -407,10 +407,13 @@ class gozer_engine(QtCore.QThread):
                     if str(filename).endswith(ext):
                         self.signals.log_sig.emit('Working file %s found! %s' % (ext, filename))
                         versions = self.get_versions(check_path)
+                        if versions:
+                            working_files.append(versions)
                         # Do something with the data
                 # Kill switch
                 if not self.oh_shit:
                     break
+        return [caches, working_files]
 
     def get_sequence(self, filepath=None):
         sequence = None
@@ -453,7 +456,7 @@ class gozer_engine(QtCore.QThread):
                 splitname = filename.split(versionNum)
                 basename = splitname[0]
                 ext = splitname[-1]
-                globname = basename
+                globname = basename + '_v'
                 for i in range(0, versionPad):
                     globname += '?'
                 versions = glob.glob(path + '\\' + globname + ext)
@@ -465,16 +468,29 @@ class gozer_engine(QtCore.QThread):
                 all_versions = []
                 keep = []
                 destroy = []
-                keep_count = self.keep_count
+                keep_count = version_count - self.keep_count + 1
+                self.signals.log_sig_debug.emit('KEEP COUNT: %s' % keep_count)
                 if version_count > keep_count:
+                    self.signals.log_sig_debug.emit('Version Count: %s  Keep Count: %s' % (version_count, keep_count))
                     for v in versions:
                         get_version_nums = re.findall(r'(_v\d+|_V\d+)', v)[-1]
+                        get_version_nums = get_version_nums.lower().strip('_v')
                         all_versions.append(get_version_nums)
                     self.signals.log_sig.emit('All Versions: %s' % all_versions)
-                    last = all_versions[-1]
+                    desc_versions = sorted(all_versions, reverse=True)
+                    self.signals.log_sig_debug.emit('desc_version::: %s' % desc_versions)
                     # This needs to have the system from my notes.
-                    # while len(version_count) < keep_count:
-                    #     get_num =
+                    while version_count >= keep_count:
+                        vcount = version_count - 1
+                        version_count -= 1
+                        current = versions[vcount]
+                        self.signals.log_sig_debug.emit(':::: Current Version: %s' % current)
+                        if os.path.exists(current):
+                            keep.append(current)
+                            all_versions.remove(all_versions[vcount])
+                            self.signals.log_sig_debug.emit('!!!!!!!!!!! %s Added to Keep' % current)
+                        # keep.append()
+                        # self.signals.log_sig_debug.emit()
                 return vers
             except IndexError, e:
                 pass
