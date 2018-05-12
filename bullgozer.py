@@ -351,6 +351,7 @@ class gozer_engine(QtCore.QThread):
         """
         # logger.info('Begin seeking...')
         root = root_drive
+        catalog = {}
         while self.oh_shit:
             try:
                 projects = self.get_projects()
@@ -369,11 +370,25 @@ class gozer_engine(QtCore.QThread):
                                 # Files.  Searches need to be done of every file.
                                 # RE will need to be used to make sequence detection and version filtering work.
                                 # Collapsed sequence file names will need to be saved in the JSON
+                                roots = roots.replace('\\', '/')
                                 self.signals.log_sig_debug.emit('-' * 125)
                                 self.signals.roots_sig.emit('Search root: %s' % roots)
                                 self.signals.files_sig_debug.emit(files)
                                 self.signals.folders_sig_debug.emit(dirs)
-                                self.cache_catalog[roots] = self.catalog_files(root=roots, files=files)
+                                catalog[roots] = self.catalog_files(root=roots, files=files)
+                                if roots in catalog.keys():
+                                    self.signals.log_sig_debug.emit('Root has been found in catalog')
+                                    # Next I need to check through this for duplicate entries in this match
+                                    # This is separated into working_files and caches.
+                                    work_files = catalog[roots]['working_files']
+                                    if work_files:
+                                        self.signals.log_sig.emit('working files: %s' % work_files)
+                                else:
+                                    pass
+                                if roots not in catalog.keys():
+                                    self.cache_catalog[roots] = self.catalog_files(root=roots, files=files)
+                                elif catalog != catalog[roots]:
+                                    self.cache_catalog[roots] = self.catalog_files(root=roots, files=files)
 
                                 # Kill switch
                                 if not self.oh_shit:
@@ -383,22 +398,33 @@ class gozer_engine(QtCore.QThread):
                         break
                 self.oh_shit = False
                 self.signals.log_sig.emit('=' * 125)
+
+                # Build Report
                 self.signals.log_sig.emit('REPORT:')
-                # self.signals.log_dict_sig.emit(self.cache_catalog)
+                grand_total = 0.0
                 for _root, catalog in self.cache_catalog.items():
                     self.signals.log_sig.emit('-' * 120)
                     self.signals.log_sig.emit('ROOT: %s' % _root)
-                    caches = catalog[0]
-                    self.signals.log_sig.emit('CACHES:')
+                    caches = catalog['caches']
                     for x in caches:
-                        self.signals.log_sig.emit('%s | TOTAL FRAMES: %s | FRAME RANGE: %s' % (x['file'],
-                                                                                               x['total_frames'],
-                                                                                               x['frame_range']))
-                    working_files = catalog[1]
+                        if x['file']:
+                            self.signals.log_sig.emit('CACHES:')
+                            self.signals.log_sig.emit('%s | TOTAL FRAMES: %s | FRAME RANGE: %s' % (x['file'],
+                                                                                                   x['total_frames'],
+                                                                                                   x['frame_range']))
+                            size = x['total_size']
+                            size = float(size)
+                            size = (size/1024)
+                            grand_total += size
+                            self.signals.log_sig.emit('Total Size: %02dKB' % size)
+                    working_files = catalog['working_files']
                     for entry in working_files:
                         keep = entry['keep']
                         destroy = entry['destroy']
                         totals = entry['total_size']
+                        totals = float(totals)
+                        totals = (totals/1024)
+                        grand_total += totals
                         self.signals.log_sig.emit('KEEP:')
                         for x in keep:
                             self.signals.log_sig.emit('%s' % x)
@@ -407,7 +433,8 @@ class gozer_engine(QtCore.QThread):
                         for x in destroy:
                             self.signals.log_sig.emit('%s' % x)
 
-                        self.signals.log_sig.emit('TOTALS: %s' % totals)
+                        self.signals.log_sig.emit('TOTALS: %02dKB' % totals)
+                self.signals.log_sig.emit('GRAND TOTAL: %02dKb' % grand_total)
 
     def destroy(self):
         pass
@@ -416,33 +443,40 @@ class gozer_engine(QtCore.QThread):
         caches = []
         working_files = []
         if root and files:
+            root = root.replace('\\', '/')
             for filename in files:
                 self.signals.file_sig_debug.emit(filename)
                 self.signals.log_sig_debug.emit('Checking for cache files...')
                 check_path = root + '/' + filename
+                check_path = check_path.replace('\\', '/')
                 for ext in self.caches:
                     if str(filename).endswith(ext):
                         self.signals.log_sig_debug.emit('Cache Found!: %s' % filename)
                         sequence = self.get_sequence(filepath=check_path)
                         if sequence:
-                            caches.append(sequence)
+                            if sequence not in caches:
+                                caches.append(sequence)
                 for ext in self.working_files:
                     if str(filename).endswith(ext):
                         self.signals.log_sig.emit('Working file %s found! %s' % (ext, filename))
+                        # Perhaps here is where I should check for existing entries in the dictionary
                         versions = self.get_versions(check_path)
                         if versions:
-                            working_files.append(versions)
+                            if versions not in working_files:
+                                working_files.append(versions)
                         # Do something with the data
                 # Kill switch
                 if not self.oh_shit:
                     break
-        return [caches, working_files]
+        return {'caches':caches, 'working_files': working_files}
 
     def get_sequence(self, filepath=None):
         sequence = None
+        total_size = 0.0
         if filepath:
             try:
                 path = os.path.dirname(filepath)
+                path = path.replace('\\', '/')
                 filename = os.path.basename(filepath)
                 seqNum = re.findall(r'\d+', filename)[-1]
                 seqPad = len(seqNum)
@@ -452,7 +486,10 @@ class gozer_engine(QtCore.QThread):
                 globname = basename
                 for i in range(0, seqPad):
                     globname += '?'
-                matched_names = glob.glob(path + '\\' + globname + ext)
+                matched_names = glob.glob(path + '/' + globname + ext)
+                matched_names = sorted(matched_names)
+                for f in matched_names:
+                    total_size += os.stat(f).st_size
                 packed_name = globname.replace('?', '#') + ext
                 frame_count = len(matched_names)
                 seq_list = []
@@ -461,7 +498,7 @@ class gozer_engine(QtCore.QThread):
                     seq_list.append(get_nums)
                 frame_range = '[%s:%s]' % (seq_list[0], seq_list[-1])
                 sequence = {'file': packed_name, 'padding': seqPad, 'total_frames': frame_count,
-                            'frame_range': frame_range}
+                            'frame_range': frame_range, 'total_size': total_size}
                 return sequence
             except IndexError, e:
                 pass
@@ -472,10 +509,11 @@ class gozer_engine(QtCore.QThread):
         all_versions = []
         keep = {}
         destroy = {}
-        total_size = 0
+        total_size = 0.0
 
         self.signals.log_sig_debug.emit('Getting Version Info...')
         if filepath:
+            filepath = filepath.replace('\\', '/')
             try:
                 path = os.path.dirname(filepath)
                 filename = os.path.basename(filepath)
@@ -487,7 +525,7 @@ class gozer_engine(QtCore.QThread):
                 globname = basename
                 for i in range(0, versionPad):
                     globname += '?'
-                versions = glob.glob(path + '\\' + globname + ext)
+                versions = glob.glob(path + '/' + globname + ext)
                 self.signals.log_sig_debug.emit('Discovered versions: %s' % versions)
                 packed_name = globname.replace('?', '#') + ext
                 self.signals.log_sig_debug.emit('Packed name: %s' % packed_name)
@@ -514,12 +552,10 @@ class gozer_engine(QtCore.QThread):
                             all_versions.remove(all_versions[vcount])
                             self.signals.log_sig_debug.emit('KEEP: %s Added to Keep' % current)
                             self.signals.log_sig_debug.emit('SIZE: %s' % os.stat(current).st_size)
-                            total_size += os.stat(current).st_size
-                        # keep.append()
-                        # self.signals.log_sig_debug.emit()
                     for v in all_versions:
                         current = versions[all_versions.index(v)]
                         destroy[current] = os.stat(current).st_size
+                        total_size += os.stat(current).st_size
                 else:
                     for v in versions:
                         keep[v] = os.stat(v).st_size
