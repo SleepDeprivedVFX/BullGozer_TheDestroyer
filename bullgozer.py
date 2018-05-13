@@ -402,62 +402,21 @@ class gozer_engine(QtCore.QThread):
                                                                                                    x['frame_range']))
                             size = x['total_size']
                             size = float(size)
-                            base = 1024
-                            rnd_totals = str(int(size))
-                            if len(rnd_totals) > 3 and len(rnd_totals) <= 6:
-                                base = 1024
-                                exponent = 1
-                                size_label = 'Kb'
-                            elif len(rnd_totals) > 6 and len(rnd_totals) <= 9:
-                                base = 1024
-                                exponent = 2
-                                size_label = 'Mb'
-                            elif len(rnd_totals) > 9 and len(rnd_totals) <= 12:
-                                base = 1024
-                                exponent = 3
-                                size_label = 'Gb'
-                            elif len(rnd_totals) > 12:
-                                base = 1024
-                                exponent = 4
-                                size_label = 'Tb'
-                            else:
-                                exponent = 1
-                                size_label = 'b'
-                                base = 1
                             grand_total += size
-                            size = (size/math.pow(base, exponent))
-
-                            self.signals.log_sig.emit('Total Size: %fKB' % size)
+                            get_total = self.file_size(size)
+                            size = get_total['total']
+                            size_label = get_total['label']
+                            self.signals.log_sig.emit('Total Size: %f%s' % (size, size_label))
                     working_files = catalog['working_files']
                     for entry in working_files:
                         keep = entry['keep']
                         destroy = entry['destroy']
                         totals = entry['total_size']
                         totals = float(totals)
-                        base = 1024
-                        rnd_totals = str(int(totals))
-                        if len(rnd_totals) > 3 and len(rnd_totals) <= 6:
-                            base = 1024
-                            exponent = 1
-                            size_label = 'Kb'
-                        elif len(rnd_totals) > 6 and len(rnd_totals) <= 9:
-                            base = 1024
-                            exponent = 2
-                            size_label = 'Mb'
-                        elif len(rnd_totals) > 9 and len(rnd_totals) <= 12:
-                            base = 1024
-                            exponent = 3
-                            size_label = 'Gb'
-                        elif len(rnd_totals) > 12:
-                            base = 1024
-                            exponent = 4
-                            size_label = 'Tb'
-                        else:
-                            exponent = 1
-                            size_label = 'b'
-                            base = 1
+                        get_total = self.file_size(totals)
                         grand_total += totals
-                        totals = (totals/math.pow(base, exponent))
+                        totals = get_total['total']
+                        size_label = get_total['label']
                         self.signals.log_sig.emit('KEEP:')
                         for x in keep:
                             self.signals.log_sig.emit('%s' % x)
@@ -467,34 +426,41 @@ class gozer_engine(QtCore.QThread):
                             self.signals.log_sig.emit('%s' % x)
 
                         self.signals.log_sig.emit('TOTALS: %f%s' % (totals, size_label))
-                rnd_grand_total = str(int(grand_total))
-                count = len(rnd_grand_total)
-                base = 1024
-                if count > 3 and count <=6:
-                    base = 1024
-                    exponent = 1
-                    size_label = 'Kb'
-                elif count > 6 and count <= 9:
-                    base = 1024
-                    exponent = 2
-                    size_label = 'Mb'
-                elif count > 9 and count <= 12:
-                    base = 1024
-                    exponent = 2
-                    size_label = 'Gb'
-                elif count > 12:
-                    base = 1024
-                    exponent = 2
-                    size_label = 'Tb'
-                else:
-                    base = 1
-                    size_label = 'b'
-                    exponent = 1
-                grand_total = (grand_total/math.pow(base, exponent))
+                get_total = self.file_size(grand_total)
+                grand_total = get_total['total']
+                size_label = get_total['label']
                 self.signals.log_sig.emit('GRAND TOTAL: %f%s' % (grand_total, size_label))
 
     def destroy(self):
         pass
+
+    def file_size(self, amount=0):
+        data = {}
+        convert = str(int(amount))
+        count = len(convert)
+        if count > 3 and count <=6:
+            base = 1024
+            exponent = 1
+            size_label = 'Kb'
+        elif count > 6 and count <= 9:
+            base = 1024
+            exponent = 2
+            size_label = 'Mb'
+        elif count > 9 and count <= 12:
+            base = 1024
+            exponent = 2
+            size_label = 'Gb'
+        elif count > 12:
+            base = 1024
+            exponent = 2
+            size_label = 'Tb'
+        else:
+            base = 1
+            size_label = 'b'
+            exponent = 1
+        total = (amount/math.pow(base, exponent))
+        data = {'total': total, 'label': size_label}
+        return data
 
     def catalog_files(self, root=None, files=None, project=None):
         caches = []
