@@ -29,7 +29,7 @@ import time
 from datetime import datetime, timedelta
 from ui import bullgozer_ui as bgi
 from PySide import QtGui, QtCore
-import json
+import json as js
 import re
 import glob
 import math
@@ -375,14 +375,16 @@ class gozer_engine(QtCore.QThread):
                                 self.signals.roots_sig.emit('Search root: %s' % roots)
 
                                 # Send to the
-                                self.catalog[roots] = self.catalog_files(root=roots, files=files)
+                                self.catalog[roots] = self.catalog_files(root=roots, files=files, project=project)
 
                                 # Kill switch
                                 if not self.oh_shit:
                                     break
+                    destroyer[project] = self.catalog
                     # Kill Switch
                     if not self.oh_shit:
                         break
+
                 self.oh_shit = False
                 self.signals.log_sig.emit('=' * 125)
 
@@ -430,9 +432,18 @@ class gozer_engine(QtCore.QThread):
                 grand_total = get_total['total']
                 size_label = get_total['label']
                 self.signals.log_sig.emit('GRAND TOTAL: %f%s' % (grand_total, size_label))
+                self.build_destroyer(destroyer=destroyer)
 
-    def destroy(self):
-        pass
+    def build_destroyer(self, destroyer=None):
+        if destroyer:
+            destroyer_name = 'destroyer_%s%s.json' % (logDate, logTime)
+            dpath = root_drive + cfg_destroyer_path
+            if not os.path.isdir(dpath):
+                os.makedirs(dpath)
+            dpath += destroyer_name
+            build = js.dumps(destroyer, sort_keys=True, indent=4, separators=(',', ': '))
+            json_destroyer = open(dpath, 'w')
+            json_destroyer.write(build)
 
     def file_size(self, amount=0):
         data = {}
@@ -562,7 +573,7 @@ class gozer_engine(QtCore.QThread):
                     for v in versions:
                         get_version_nums = re.findall(r'\d+', v)[-1]
                         all_versions.append(get_version_nums)
-                    self.signals.log_sig.emit('All Versions: %s' % all_versions)
+                    self.signals.log_sig_debug.emit('All Versions: %s' % all_versions)
                     desc_versions = sorted(all_versions, reverse=True)
                     self.signals.log_sig_debug.emit('desc_version::: %s' % desc_versions)
                     # This needs to have the system from my notes.
