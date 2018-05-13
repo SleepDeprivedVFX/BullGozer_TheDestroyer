@@ -32,6 +32,7 @@ from PySide import QtGui, QtCore
 import json
 import re
 import glob
+import math
 
 # -----------------------------------------------------
 # Rebuilder
@@ -56,7 +57,8 @@ class rebuilder():
 
         raw_config = ConfigParser.RawConfigParser()
 
-        log_path = '/tools/scripts/logs'
+        log_path = '/tools/scripts/logs/'
+        destroyer_path = '/tools/scripts/destroyers/'
         linux_drive = os.path.expanduser('~')
         mac_drive = os.path.expanduser('~')
         win_drive = os.path.expanduser('~')
@@ -90,6 +92,7 @@ class rebuilder():
         raw_config.set('Shotgun', 'shotgun_url', sg_url)
 
         raw_config.add_section('BullGozer')
+        raw_config.set('BullGozer', 'destroyer_path', destroyer_path)
         raw_config.set('BullGozer', 'log_path', log_path)
         raw_config.set('BullGozer', 'linux_drive', linux_drive)
         raw_config.set('BullGozer', 'mac_drive', mac_drive)
@@ -157,6 +160,7 @@ cfg_disabled_projects = config_file.get('Root', 'Disabled_Projects')
 cfg_project_list = config_file.get('Root', 'project_list')
 cfg_keep_count = config_file.get('Parameters', 'keep_count')
 cfg_folder_override = config_file.get('Root', 'folder_override')
+cfg_destroyer_path = config_file.get('BullGozer', 'destroyer_path')
 prelog += 'Configuration variables set.\n'
 
 osSystem = platform.system()
@@ -256,12 +260,13 @@ class gozer_engine(QtCore.QThread):
         self.project_list = cfg_project_list.split(',')
         self.keep_count = int(cfg_keep_count)
         self.folder_override = cfg_folder_override
+        self.destroyer_path = cfg_destroyer_path
 
         # Signals
         self.oh_shit_sig = self.signals.oh_shit_sig.connect(self.kill)
 
         # Storage Variables
-        self.cache_catalog = {}
+        self.catalog = {}
         self.oh_shit = True
 
     def run(self, *args, **kwargs):
@@ -351,7 +356,7 @@ class gozer_engine(QtCore.QThread):
         """
         # logger.info('Begin seeking...')
         root = root_drive
-        catalog = {}
+        destroyer = {}
         while self.oh_shit:
             try:
                 projects = self.get_projects()
@@ -365,30 +370,12 @@ class gozer_engine(QtCore.QThread):
                         if os.path.exists(path):
                             walk = os.walk(path)
                             for roots, dirs, files in walk:
-                                # The Roots will be saved as the name of the JSON entry, thus a path can easily be built
-                                # The Dirs, I'm not entirely certain yet... Perhaps restrictions could be built in here.
-                                # Files.  Searches need to be done of every file.
-                                # RE will need to be used to make sequence detection and version filtering work.
-                                # Collapsed sequence file names will need to be saved in the JSON
                                 roots = roots.replace('\\', '/')
                                 self.signals.log_sig_debug.emit('-' * 125)
                                 self.signals.roots_sig.emit('Search root: %s' % roots)
-                                self.signals.files_sig_debug.emit(files)
-                                self.signals.folders_sig_debug.emit(dirs)
-                                catalog[roots] = self.catalog_files(root=roots, files=files)
-                                if roots in catalog.keys():
-                                    self.signals.log_sig_debug.emit('Root has been found in catalog')
-                                    # Next I need to check through this for duplicate entries in this match
-                                    # This is separated into working_files and caches.
-                                    work_files = catalog[roots]['working_files']
-                                    if work_files:
-                                        self.signals.log_sig.emit('working files: %s' % work_files)
-                                else:
-                                    pass
-                                if roots not in catalog.keys():
-                                    self.cache_catalog[roots] = self.catalog_files(root=roots, files=files)
-                                elif catalog != catalog[roots]:
-                                    self.cache_catalog[roots] = self.catalog_files(root=roots, files=files)
+
+                                # Send to the
+                                self.catalog[roots] = self.catalog_files(root=roots, files=files)
 
                                 # Kill switch
                                 if not self.oh_shit:
@@ -400,9 +387,10 @@ class gozer_engine(QtCore.QThread):
                 self.signals.log_sig.emit('=' * 125)
 
                 # Build Report
+
                 self.signals.log_sig.emit('REPORT:')
                 grand_total = 0.0
-                for _root, catalog in self.cache_catalog.items():
+                for _root, catalog in self.catalog.items():
                     self.signals.log_sig.emit('-' * 120)
                     self.signals.log_sig.emit('ROOT: %s' % _root)
                     caches = catalog['caches']
@@ -414,17 +402,62 @@ class gozer_engine(QtCore.QThread):
                                                                                                    x['frame_range']))
                             size = x['total_size']
                             size = float(size)
-                            size = (size/1024)
+                            base = 1024
+                            rnd_totals = str(int(size))
+                            if len(rnd_totals) > 3 and len(rnd_totals) <= 6:
+                                base = 1024
+                                exponent = 1
+                                size_label = 'Kb'
+                            elif len(rnd_totals) > 6 and len(rnd_totals) <= 9:
+                                base = 1024
+                                exponent = 2
+                                size_label = 'Mb'
+                            elif len(rnd_totals) > 9 and len(rnd_totals) <= 12:
+                                base = 1024
+                                exponent = 3
+                                size_label = 'Gb'
+                            elif len(rnd_totals) > 12:
+                                base = 1024
+                                exponent = 4
+                                size_label = 'Tb'
+                            else:
+                                exponent = 1
+                                size_label = 'b'
+                                base = 1
                             grand_total += size
-                            self.signals.log_sig.emit('Total Size: %02dKB' % size)
+                            size = (size/math.pow(base, exponent))
+
+                            self.signals.log_sig.emit('Total Size: %fKB' % size)
                     working_files = catalog['working_files']
                     for entry in working_files:
                         keep = entry['keep']
                         destroy = entry['destroy']
                         totals = entry['total_size']
                         totals = float(totals)
-                        totals = (totals/1024)
+                        base = 1024
+                        rnd_totals = str(int(totals))
+                        if len(rnd_totals) > 3 and len(rnd_totals) <= 6:
+                            base = 1024
+                            exponent = 1
+                            size_label = 'Kb'
+                        elif len(rnd_totals) > 6 and len(rnd_totals) <= 9:
+                            base = 1024
+                            exponent = 2
+                            size_label = 'Mb'
+                        elif len(rnd_totals) > 9 and len(rnd_totals) <= 12:
+                            base = 1024
+                            exponent = 3
+                            size_label = 'Gb'
+                        elif len(rnd_totals) > 12:
+                            base = 1024
+                            exponent = 4
+                            size_label = 'Tb'
+                        else:
+                            exponent = 1
+                            size_label = 'b'
+                            base = 1
                         grand_total += totals
+                        totals = (totals/math.pow(base, exponent))
                         self.signals.log_sig.emit('KEEP:')
                         for x in keep:
                             self.signals.log_sig.emit('%s' % x)
@@ -433,13 +466,37 @@ class gozer_engine(QtCore.QThread):
                         for x in destroy:
                             self.signals.log_sig.emit('%s' % x)
 
-                        self.signals.log_sig.emit('TOTALS: %02dKB' % totals)
-                self.signals.log_sig.emit('GRAND TOTAL: %02dKb' % grand_total)
+                        self.signals.log_sig.emit('TOTALS: %f%s' % (totals, size_label))
+                rnd_grand_total = str(int(grand_total))
+                count = len(rnd_grand_total)
+                base = 1024
+                if count > 3 and count <=6:
+                    base = 1024
+                    exponent = 1
+                    size_label = 'Kb'
+                elif count > 6 and count <= 9:
+                    base = 1024
+                    exponent = 2
+                    size_label = 'Mb'
+                elif count > 9 and count <= 12:
+                    base = 1024
+                    exponent = 2
+                    size_label = 'Gb'
+                elif count > 12:
+                    base = 1024
+                    exponent = 2
+                    size_label = 'Tb'
+                else:
+                    base = 1
+                    size_label = 'b'
+                    exponent = 1
+                grand_total = (grand_total/math.pow(base, exponent))
+                self.signals.log_sig.emit('GRAND TOTAL: %f%s' % (grand_total, size_label))
 
     def destroy(self):
         pass
 
-    def catalog_files(self, root=None, files=None):
+    def catalog_files(self, root=None, files=None, project=None):
         caches = []
         working_files = []
         if root and files:
@@ -468,7 +525,7 @@ class gozer_engine(QtCore.QThread):
                 # Kill switch
                 if not self.oh_shit:
                     break
-        return {'caches':caches, 'working_files': working_files}
+        return {'caches':caches, 'working_files': working_files, 'project': project}
 
     def get_sequence(self, filepath=None):
         sequence = None
@@ -526,6 +583,7 @@ class gozer_engine(QtCore.QThread):
                 for i in range(0, versionPad):
                     globname += '?'
                 versions = glob.glob(path + '/' + globname + ext)
+                versions = sorted(versions)
                 self.signals.log_sig_debug.emit('Discovered versions: %s' % versions)
                 packed_name = globname.replace('?', '#') + ext
                 self.signals.log_sig_debug.emit('Packed name: %s' % packed_name)
