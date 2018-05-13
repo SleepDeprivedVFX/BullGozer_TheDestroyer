@@ -223,6 +223,8 @@ class gozer_signal(QtCore.QObject):
     project_sig = QtCore.Signal(dict)
     log_dict_sig = QtCore.Signal(dict)
     roots_sig = QtCore.Signal(str)
+    destroyer_sig = QtCore.Signal(str)
+    tally_sig = QtCore.Signal(str)
 
     log_sig_debug = QtCore.Signal(str)
     files_sig_debug = QtCore.Signal(list)
@@ -237,17 +239,18 @@ class gozer_signal(QtCore.QObject):
 # -----------------------------------------------------
 class gozer_output_stream(logger.StreamHandler):
     """
-    rom_output_stream ports the logger to the UI output window
+    gozer_output_stream ports the logger to the UI output window
     """
     def emit(self, record):
         self.edit.appendPlainText(self.format(record))
 
 
-class gozer_engine(QtCore.QThread):
+class gozer_seeker(QtCore.QThread):
     def __init__(self, parent=None):
         logger.debug('Gozer Engine Thread Initialized...')
         QtCore.QThread.__init__(self, parent)
-        # super(gozer_engine, self).__init__(parent)
+
+        # Shotgun Connection
         self.sg = Shotgun(shotgun_conf['url'], shotgun_conf['name'], shotgun_conf['key'])
 
         # Globals
@@ -261,6 +264,8 @@ class gozer_engine(QtCore.QThread):
         self.keep_count = int(cfg_keep_count)
         self.folder_override = cfg_folder_override
         self.destroyer_path = cfg_destroyer_path
+        self.destroyer_file = None
+        self.running_tally = 0.0
 
         # Signals
         self.oh_shit_sig = self.signals.oh_shit_sig.connect(self.kill)
@@ -304,9 +309,6 @@ class gozer_engine(QtCore.QThread):
         # Need to add the Folder Override
         if disabled_projects and not project_list:
             # Here we start with anything not enabled on Shotgun.
-            # logger.info('Only disabled projects is checked, and no project list is given.')
-            # logger.debug('disabled TRUE')
-            # logger.debug('project list: %s' % project_list)
             filters = [
                 ['sg_status', 'is_not', 'active']
             ]
@@ -315,9 +317,6 @@ class gozer_engine(QtCore.QThread):
                 'tank_name'
             ]
         elif not disabled_projects and not project_list:
-            # logger.debug('disabled FALSE')
-            # logger.debug('project list: %s' % self.project_list)
-            # logger.info('All projects will be searched')
             filters = []
             fields = [
                 'id',
@@ -326,9 +325,6 @@ class gozer_engine(QtCore.QThread):
         elif project_list:
             # This search may have some issues.  Don't know if I can really search for multiple tank_names.
             # Works find for single projects.
-            # logger.debug('disabled %s' % self.disabled_projects)
-            # logger.debug('project list: %s' % self.project_list)
-            # logger.info('A project list has been defined.  Only listed projects will be used.')
             filters = []
             for project in self.project_list:
                 filters.append(['tank_name', 'is', project])
@@ -427,14 +423,18 @@ class gozer_engine(QtCore.QThread):
                         for x in destroy:
                             self.signals.log_sig.emit('%s' % x)
 
-                        self.signals.log_sig.emit('TOTALS: %f%s' % (totals, size_label))
+                        self.signals.log_sig.emit('TOTALS: %.2f%s' % (totals, size_label))
                 get_total = self.file_size(grand_total)
                 grand_total = get_total['total']
                 size_label = get_total['label']
-                self.signals.log_sig.emit('GRAND TOTAL: %f%s' % (grand_total, size_label))
-                self.build_destroyer(destroyer=destroyer)
+                self.signals.log_sig.emit('GRAND TOTAL: %.2f%s' % (grand_total, size_label))
+                self.destroyer_file = self.build_destroyer(destroyer=destroyer)
+                self.signals.log_sig.emit('DESTROYER FILE: %s' % self.destroyer_file)
+                self.signals.destroyer_sig.emit(self.destroyer_file)
+
 
     def build_destroyer(self, destroyer=None):
+        dpath = None
         if destroyer:
             destroyer_name = 'destroyer_%s%s.json' % (logDate, logTime)
             dpath = root_drive + cfg_destroyer_path
@@ -444,6 +444,7 @@ class gozer_engine(QtCore.QThread):
             build = js.dumps(destroyer, sort_keys=True, indent=4, separators=(',', ': '))
             json_destroyer = open(dpath, 'w')
             json_destroyer.write(build)
+        return dpath
 
     def file_size(self, amount=0):
         data = {}
@@ -490,6 +491,9 @@ class gozer_engine(QtCore.QThread):
                         if sequence:
                             if sequence not in caches:
                                 caches.append(sequence)
+                                self.signals.log_sig.emit('Sequence Found!  %s  Total Frames: %s  Total Size: '
+                                                          '%s' % (sequence['file'], sequence['total_frames'],
+                                                                  sequence['total_size']))
                 for ext in self.working_files:
                     if str(filename).endswith(ext):
                         self.signals.log_sig.emit('Working file %s found! %s' % (ext, filename))
@@ -524,6 +528,9 @@ class gozer_engine(QtCore.QThread):
                 matched_names = sorted(matched_names)
                 for f in matched_names:
                     total_size += os.stat(f).st_size
+                    self.running_tally += os.stat(f).st_size
+                    post_tally = self.file_size(amount=self.running_tally)
+                    self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
                 packed_name = globname.replace('?', '#') + ext
                 frame_count = len(matched_names)
                 seq_list = []
@@ -591,6 +598,10 @@ class gozer_engine(QtCore.QThread):
                         current = versions[all_versions.index(v)]
                         destroy[current] = os.stat(current).st_size
                         total_size += os.stat(current).st_size
+
+                        self.running_tally += os.stat(current).st_size
+                        post_tally = self.file_size(amount=self.running_tally)
+                        self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
                 else:
                     for v in versions:
                         keep[v] = os.stat(v).st_size
@@ -602,6 +613,53 @@ class gozer_engine(QtCore.QThread):
         return {'keep': keep, 'destroy': destroy, 'total_size': total_size}
 
 # ----------------------------------------------------------------------------------------------
+# Gozer Detroyer
+# ----------------------------------------------------------------------------------------------
+class gozer_destroyer(QtCore.QThread):
+    def __init__(self, parent=None):
+        QtCore.QThread.__init__(self, parent)
+
+        # Shotgun Connection
+        self.sg = Shotgun(shotgun_conf['url'], shotgun_conf['name'], shotgun_conf['key'])
+
+        # Globals
+        # Some of these may be unnecessary here.
+        self.signals = gozer_signal()
+        self.caches = cfg_caches.split(',')
+        self.working_files = cfg_working_files.split(',')
+        self.search_folders = cfg_search_folders.split(',')
+        self.programs = cfg_programs.split(',')
+        self.disabled_projects = bool(cfg_disabled_projects)
+        self.project_list = cfg_project_list.split(',')
+        self.keep_count = int(cfg_keep_count)
+        self.folder_override = cfg_folder_override
+        self.destroyer_path = cfg_destroyer_path
+        self.destroyer_file = None
+
+        # Signals
+        self.oh_shit_sig = self.signals.oh_shit_sig.connect(self.kill)
+
+        # Storage Variables
+        self.catalog = {}
+        self.oh_shit = True
+
+    def run(self, *args, **kwargs):
+        self.destroy()
+
+    # def run(self):
+    #     search_results = self.seek()
+
+    def kill(self):
+        self.oh_shit = False
+
+    def load_the_destroyer(self, destroyer_file=None):
+        destroyer = None
+        if destroyer_file:
+            print destroyer_file
+        return destroyer
+
+
+# ----------------------------------------------------------------------------------------------
 # Start BullGozer
 # ----------------------------------------------------------------------------------------------
 class bullgozer(QtGui.QWidget):
@@ -611,8 +669,8 @@ class bullgozer(QtGui.QWidget):
     def __init__(self, parent=None):
         # Preliminary things
         QtGui.QWidget.__init__(self, parent)
-        self.gozer_engine = gozer_engine()
-
+        self.gozer_seeker = gozer_seeker()
+        self.gozer_destroyer = gozer_destroyer()
         self.ui = bgi.Ui_Form()
         self.ui.setupUi(self)
 
@@ -621,21 +679,40 @@ class bullgozer(QtGui.QWidget):
         logger.getLogger().addHandler(self.gozer_stream)
 
         # Connect Logger Signals
-        self.gozer_engine.signals.files_sig.connect(self.update_log)
-        self.gozer_engine.signals.file_sig.connect(self.update_log)
-        self.gozer_engine.signals.folders_sig.connect(self.update_log)
-        self.gozer_engine.signals.roots_sig.connect(self.update_log)
-        self.gozer_engine.signals.log_sig.connect(self.update_log)
-        self.gozer_engine.signals.files_sig_debug.connect(self.update_log_debug)
-        self.gozer_engine.signals.file_sig_debug.connect(self.update_log_debug)
-        self.gozer_engine.signals.folders_sig_debug.connect(self.update_log_debug)
-        self.gozer_engine.signals.roots_sig_debug.connect(self.update_log_debug)
-        self.gozer_engine.signals.log_sig_debug.connect(self.update_log_debug)
-        self.gozer_engine.signals.log_dict_sig_debug.connect(self.update_log_debug)
-        self.gozer_engine.signals.log_dict_sig.connect(self.update_log)
+        self.gozer_seeker.signals.files_sig.connect(self.update_log)
+        self.gozer_seeker.signals.file_sig.connect(self.update_log)
+        self.gozer_seeker.signals.folders_sig.connect(self.update_log)
+        self.gozer_seeker.signals.roots_sig.connect(self.update_log)
+        self.gozer_seeker.signals.log_sig.connect(self.update_log)
+        self.gozer_seeker.signals.files_sig_debug.connect(self.update_log_debug)
+        self.gozer_seeker.signals.file_sig_debug.connect(self.update_log_debug)
+        self.gozer_seeker.signals.folders_sig_debug.connect(self.update_log_debug)
+        self.gozer_seeker.signals.roots_sig_debug.connect(self.update_log_debug)
+        self.gozer_seeker.signals.log_sig_debug.connect(self.update_log_debug)
+        self.gozer_seeker.signals.log_dict_sig_debug.connect(self.update_log_debug)
+        self.gozer_seeker.signals.log_dict_sig.connect(self.update_log)
+        self.gozer_seeker.signals.destroyer_sig.connect(self.set_destroyer)
+        self.gozer_seeker.signals.tally_sig.connect(self.running_tally)
 
         self.ui.seek_btn.clicked.connect(self.start_seeking)
+        self.ui.load_btn.clicked.connect(self.load_destroyer)
+        self.ui.destroy_btn.clicked.connect(self.the_destroyer_of_files)
         self.ui.oh_shit_btn.clicked.connect(self.oh_shit)
+
+    def load_destroyer(self):
+        destroyer = self.ui.destroyer_file.text()
+        if destroyer:
+            if not self.gozer_destroyer.isRunning():
+                self.gozer_destroyer.oh_shit = True
+                self.ui.output_log.clear()
+                self.gozer_destroyer.load_the_destroyer(destroyer_file=destroyer)
+
+    def set_destroyer(self, destroyer=None):
+        if destroyer:
+            self.ui.destroyer_file.setText(destroyer)
+
+    def the_destroyer_of_files(self):
+        logger.info('Bull Gozer, The Destroyer of Files has been let loose into the file system.')
 
     def update_log(self, message=None):
         if message:
@@ -645,18 +722,22 @@ class bullgozer(QtGui.QWidget):
         if message:
             logger.debug(message)
 
+    def running_tally(self, message=None):
+        if message:
+            self.ui.grand_total.setText('%s' % message)
+
     def oh_shit(self):
         # These could both be replaced with signals, thus eliminating the direct call
-        # self.gozer_engine.oh_shit = True
-        if self.gozer_engine.isRunning():
-            self.gozer_engine.oh_shit = False
-            self.gozer_engine.quit()
+        # self.gozer_seeker.oh_shit = True
+        if self.gozer_seeker.isRunning():
+            self.gozer_seeker.oh_shit = False
+            self.gozer_seeker.quit()
 
     def start_seeking(self):
-        if not self.gozer_engine.isRunning():
-            self.gozer_engine.oh_shit = True
+        if not self.gozer_seeker.isRunning():
+            self.gozer_seeker.oh_shit = True
             # self.signal.load_sig.emit('clicked()')
-            self.gozer_engine.start()
+            self.gozer_seeker.start()
             logger.info('Search Initiated!')
 
 
