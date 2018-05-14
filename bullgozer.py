@@ -407,10 +407,10 @@ class gozer_seeker(QtCore.QThread):
                                                                                                    x['frame_range']))
                             size = x['total_size']
                             size = float(size)
-                            grand_total += size
                             get_total = self.file_size(size)
                             size = get_total['total']
                             size_label = get_total['label']
+                            grand_total += self.revert_file_size(amount=size, label=size_label)
                             self.signals.log_sig.emit('Total Size: %f%s' % (size, size_label))
                     working_files = catalog['working_files']
                     for entry in working_files:
@@ -421,7 +421,6 @@ class gozer_seeker(QtCore.QThread):
                         totals = entry['total_size']
                         totals = float(totals)
                         get_total = self.file_size(totals)
-                        # grand_total += totals
                         totals = get_total['total']
                         size_label = get_total['label']
                         self.signals.log_sig.emit('KEEP:')
@@ -434,6 +433,7 @@ class gozer_seeker(QtCore.QThread):
 
                         self.signals.log_sig.emit('TOTALS: %.2f%s' % (totals, size_label))
                 get_total = self.file_size(grand_total)
+                print get_total
                 grand_total = get_total['total']
                 size_label = get_total['label']
                 self.signals.log_sig.emit('GRAND TOTAL: %.2f%s' % (grand_total, size_label))
@@ -487,6 +487,27 @@ class gozer_seeker(QtCore.QThread):
         total = (amount/math.pow(base, exponent))
         data = {'total': total, 'label': size_label}
         return data
+
+    # --------------------------------------------------------------------------------------------------
+    # Revert File size
+    # --------------------------------------------------------------------------------------------------
+    def revert_file_size(self, amount=0, label=None):
+        number = 0.0
+        if label:
+            base = 1024
+            if label == 'b':
+                base = 1
+                exponenet = 1
+            elif label == 'Kb':
+                exponenet = 1
+            elif label == 'Mb':
+                exponenet = 2
+            elif label == 'Gb':
+                exponenet = 3
+            elif label == 'Tb':
+                exponenet = 4
+            number = amount + math.pow(base, exponenet)
+        return number
 
     # --------------------------------------------------------------------------------------------------
     # Catalog the files
@@ -709,6 +730,27 @@ class gozer_destroyer(QtCore.QThread):
         return data
 
     # --------------------------------------------------------------------------------------------------
+    # Revert File size
+    # --------------------------------------------------------------------------------------------------
+    def revert_file_size(self, amount=0, label=None):
+        number = 0.0
+        if label:
+            base = 1024
+            if label == 'b':
+                base = 1
+                exponenet = 1
+            elif label == 'Kb':
+                exponenet = 1
+            elif label == 'Mb':
+                exponenet = 2
+            elif label == 'Gb':
+                exponenet = 3
+            elif label == 'Tb':
+                exponenet = 4
+            number = amount + math.pow(base, exponenet)
+        return number
+
+    # --------------------------------------------------------------------------------------------------
     # Load the Destroyer
     # --------------------------------------------------------------------------------------------------
     def load_the_destroyer(self, destroyer_file=None):
@@ -741,9 +783,9 @@ class gozer_destroyer(QtCore.QThread):
                                         frames = cache['total_frames']
                                         filename = cache['file']
                                         cache_size = self.file_size(amount=size)
-                                        self.running_total += float(size)
                                         size = cache_size['total']
                                         label = cache_size['label']
+                                        self.running_total += self.revert_file_size(amount=size, label=label)
                                         self.signals.log_sig.emit('\t\t%.2f%s (%i frms) - %s %s' % (size, label, frames,
                                                                                                     filename,
                                                                                                     frame_range))
@@ -767,13 +809,13 @@ class gozer_destroyer(QtCore.QThread):
                                             for filepath, filesize in destroy.items():
                                                 get_filesize = self.file_size(amount=filesize)
                                                 f_size = get_filesize['total']
-                                                self.running_total += float(f_size)
                                                 f_label = get_filesize['label']
                                                 self.signals.log_sig.emit('\t\t%.2f%s - %s' % (f_size, f_label,
                                                                                                filepath))
+                                                self.running_total += self.revert_file_size(amount=f_size, label=f_label)
                                                 update_total = self.file_size(self.running_total)
                                                 self.signals.tally_sig.emit('%.2f%s' % (update_total['total'],
-                                                                                      update_total['label']))
+                                                                                        update_total['label']))
                                             self.signals.log_sig.emit('\t\t' + ('+' * 100))
                                         if keep:
                                             self.signals.log_sig.emit('\t\tWORKING FILES TO KEEP:')
@@ -781,7 +823,6 @@ class gozer_destroyer(QtCore.QThread):
                                             for filepath, filesize in keep.items():
                                                 get_filesize = self.file_size(amount=filesize)
                                                 f_size = get_filesize['total']
-                                                self.running_total += float(f_size)
                                                 f_label = get_filesize['label']
                                                 self.signals.log_sig.emit('\t\t%.2f%s - %s' % (f_size, f_label,
                                                                                                filepath))
@@ -832,7 +873,7 @@ class gozer_destroyer(QtCore.QThread):
                                                 check_name = str(path) + '/'
                                                 check_name += str(filename).replace('#' * pad, str(cp))
                                                 if os.path.exists(check_name):
-                                                    # os.remove(check_name)
+                                                    os.remove(check_name)
                                                     self.signals.log_sig.emit('%s - DELETED!' % check_name)
                                                     # Kill switch
                                                     if not self.oh_shit:
@@ -855,7 +896,7 @@ class gozer_destroyer(QtCore.QThread):
                                                 self.signals.log_sig.emit('\t\tBLOCK SIZE: %.2f%s' % (total_size, label))
                                                 for filepath, filesize in destroy.items():
                                                     if os.path.exists(filepath):
-                                                        # os.remove(filepath)
+                                                        os.remove(filepath)
                                                         self.signals.log_sig.emit('%s - DELETED!' % filepath)
 
                                                         # Kill switch
