@@ -245,6 +245,9 @@ class gozer_output_stream(logger.StreamHandler):
         self.edit.appendPlainText(self.format(record))
 
 
+# -----------------------------------------------------
+# Gozer Seeker
+# -----------------------------------------------------
 class gozer_seeker(QtCore.QThread):
     def __init__(self, parent=None):
         logger.debug('Gozer Engine Thread Initialized...')
@@ -427,11 +430,10 @@ class gozer_seeker(QtCore.QThread):
                 get_total = self.file_size(grand_total)
                 grand_total = get_total['total']
                 size_label = get_total['label']
-                self.signals.log_sig.emit('GRAND TOTAL: %.2f%s' % (grand_total, size_label))
+                # self.signals.log_sig.emit('GRAND TOTAL: %.2f%s' % (grand_total, size_label))
                 self.destroyer_file = self.build_destroyer(destroyer=destroyer)
                 self.signals.log_sig.emit('DESTROYER FILE: %s' % self.destroyer_file)
                 self.signals.destroyer_sig.emit(self.destroyer_file)
-
 
     def build_destroyer(self, destroyer=None):
         dpath = None
@@ -612,6 +614,7 @@ class gozer_seeker(QtCore.QThread):
                 pass
         return {'keep': keep, 'destroy': destroy, 'total_size': total_size}
 
+
 # ----------------------------------------------------------------------------------------------
 # Gozer Detroyer
 # ----------------------------------------------------------------------------------------------
@@ -635,6 +638,7 @@ class gozer_destroyer(QtCore.QThread):
         self.folder_override = cfg_folder_override
         self.destroyer_path = cfg_destroyer_path
         self.destroyer_file = None
+        self.running_total = 0.0
 
         # Signals
         self.oh_shit_sig = self.signals.oh_shit_sig.connect(self.kill)
@@ -652,10 +656,113 @@ class gozer_destroyer(QtCore.QThread):
     def kill(self):
         self.oh_shit = False
 
+    def file_size(self, amount=0):
+        data = {}
+        convert = str(int(amount))
+        count = len(convert)
+        if count > 3 and count <=6:
+            base = 1024
+            exponent = 1
+            size_label = 'Kb'
+        elif count > 6 and count <= 9:
+            base = 1024
+            exponent = 2
+            size_label = 'Mb'
+        elif count > 9 and count <= 12:
+            base = 1024
+            exponent = 2
+            size_label = 'Gb'
+        elif count > 12:
+            base = 1024
+            exponent = 2
+            size_label = 'Tb'
+        else:
+            base = 1
+            size_label = 'b'
+            exponent = 1
+        total = (amount/math.pow(base, exponent))
+        data = {'total': total, 'label': size_label}
+        return data
+
     def load_the_destroyer(self, destroyer_file=None):
+        self.signals.log_sig.emit('Loading Destroyer...')
         destroyer = None
         if destroyer_file:
-            print destroyer_file
+            if os.path.exists(destroyer_file):
+                destroy = open(destroyer_file, mode='r')
+                destroyer_json = js.load(destroy)
+                for project, collection in destroyer_json.items():
+                    if project:
+                        self.signals.log_sig.emit('=' * 100)
+                        self.signals.log_sig.emit('%s' % project)
+                        self.signals.log_sig.emit('=' * 100)
+                        for path, data in collection.items():
+                            if data['working_files'] or data['caches']:
+                                self.signals.log_sig.emit('\t%s' % path)
+                                path_length = len(path)
+                                self.signals.log_sig.emit('\t' + ('-' * path_length))
+                                if data['caches']:
+                                    caches = data['caches']
+                                    self.signals.log_sig.emit('\t\tCACHES FOR DELETION:')
+                                    for cache in caches:
+                                        pad = cache['padding']
+                                        size = cache['total_size']
+                                        frame_range = cache['frame_range']
+                                        total_frames = cache['total_frames']
+                                        filename = cache['file']
+                                        cache_size = self.file_size(amount=size)
+                                        self.running_total += size
+                                        size = cache_size['total']
+                                        label = cache_size['label']
+                                        self.signals.log_sig.emit('\t\t%.2f%s - %s %s' % (size, label, filename,
+                                                                                        frame_range))
+                                        self.signals.log_sig.emit('\t\t' + ('+' * 100))
+                                    self.signals.log_sig.emit('\t\t' + ('-' * 150))
+                                    #
+                                    # # This will go nicely in the actual destroyer.
+                                    # split_range = str(frame_range).strip('[').strip(']').split(':')
+                                    # start = split_range[0]
+                                    # end = split_range[1]
+                                    # start_num = int(start)
+                                    # end_num = int(end) + 1
+                                    # for cp in range(start_num, end_num):
+                                    #     check_name = str(path) + '/'
+                                    #     check_name += str(filename).replace('#' * pad, str(cp))
+                                    #     if os.path.exists(check_name):
+
+                                    # if os.path.exists(check_name):
+                                    #     for cp in range(start, end):
+                                if data['working_files']:
+                                    working_files = data['working_files']
+                                    for wf in working_files:
+                                        total_size = wf['total_size']
+                                        d_totals = self.file_size(amount=total_size)
+                                        total_size = d_totals['total']
+                                        label = d_totals['label']
+                                        destroy = wf['destroy']
+                                        keep = wf['keep']
+                                        if destroy:
+                                            self.signals.log_sig.emit('\t\tWORKING FILES FOR DELETION:')
+                                            self.signals.log_sig.emit('\t\tBLOCK SIZE: %.2f%s' % (total_size, label))
+                                            for filepath, filesize in destroy.items():
+                                                get_filesize = self.file_size(amount=filesize)
+                                                f_size = get_filesize['total']
+                                                f_label = get_filesize['label']
+                                                self.signals.log_sig.emit('\t\t%.2f%s - %s' % (f_size, f_label,
+                                                                                               filepath))
+                                            self.signals.log_sig.emit('\t\t' + ('+' * 100))
+                                        if keep:
+                                            self.signals.log_sig.emit('\t\tWORKING FILES TO KEEP:')
+                                            self.signals.log_sig.emit('\t\tTHESE WILL NOT BE DELETED!')
+                                            for filepath, filesize in keep.items():
+                                                get_filesize = self.file_size(amount=filesize)
+                                                f_size = get_filesize['total']
+                                                f_label = get_filesize['label']
+                                                self.signals.log_sig.emit('\t\t%.2f%s - %s' % (f_size, f_label,
+                                                                                               filepath))
+                                            self.signals.log_sig.emit('\t\t' + ('+' * 100))
+                                    self.signals.log_sig.emit('\t\t' + ('-' * 150))
+
         return destroyer
 
 
@@ -693,6 +800,7 @@ class bullgozer(QtGui.QWidget):
         self.gozer_seeker.signals.log_dict_sig.connect(self.update_log)
         self.gozer_seeker.signals.destroyer_sig.connect(self.set_destroyer)
         self.gozer_seeker.signals.tally_sig.connect(self.running_tally)
+        self.gozer_destroyer.signals.log_sig.connect(self.update_log)
 
         self.ui.seek_btn.clicked.connect(self.start_seeking)
         self.ui.load_btn.clicked.connect(self.load_destroyer)
@@ -701,10 +809,13 @@ class bullgozer(QtGui.QWidget):
 
     def load_destroyer(self):
         destroyer = self.ui.destroyer_file.text()
+        if not destroyer:
+            destroyer = QtGui.QFileDialog.getOpenFileName(self, 'Open file', (root_drive + cfg_destroyer_path),
+                                                          'JSON Files (*.json)')[0]
         if destroyer:
             if not self.gozer_destroyer.isRunning():
                 self.gozer_destroyer.oh_shit = True
-                self.ui.output_log.clear()
+                self.gozer_stream.edit.clear()
                 self.gozer_destroyer.load_the_destroyer(destroyer_file=destroyer)
 
     def set_destroyer(self, destroyer=None):
