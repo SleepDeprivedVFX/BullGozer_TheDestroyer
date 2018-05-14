@@ -689,6 +689,7 @@ class gozer_destroyer(QtCore.QThread):
         destroyer = None
         if destroyer_file:
             if os.path.exists(destroyer_file):
+                self.signals.destroyer_sig.emit('%s' % destroyer_file)
                 destroy = open(destroyer_file, mode='r')
                 destroyer_json = js.load(destroy)
                 for project, collection in destroyer_json.items():
@@ -708,14 +709,18 @@ class gozer_destroyer(QtCore.QThread):
                                         pad = cache['padding']
                                         size = cache['total_size']
                                         frame_range = cache['frame_range']
-                                        total_frames = cache['total_frames']
+                                        frames = cache['total_frames']
                                         filename = cache['file']
                                         cache_size = self.file_size(amount=size)
-                                        self.running_total += size
+                                        self.running_total += float(size)
                                         size = cache_size['total']
                                         label = cache_size['label']
-                                        self.signals.log_sig.emit('\t\t%.2f%s - %s %s' % (size, label, filename,
-                                                                                        frame_range))
+                                        self.signals.log_sig.emit('\t\t%.2f%s (%i frms) - %s %s' % (size, label, frames,
+                                                                                                    filename,
+                                                                                                    frame_range))
+                                        update_total = self.file_size(self.running_total)
+                                        self.signals.tally_sig.emit('%s%s' % (update_total['total'],
+                                                                              update_total['label']))
                                         self.signals.log_sig.emit('\t\t' + ('+' * 100))
                                     self.signals.log_sig.emit('\t\t' + ('-' * 150))
                                     #
@@ -747,9 +752,13 @@ class gozer_destroyer(QtCore.QThread):
                                             for filepath, filesize in destroy.items():
                                                 get_filesize = self.file_size(amount=filesize)
                                                 f_size = get_filesize['total']
+                                                self.running_total += float(f_size)
                                                 f_label = get_filesize['label']
                                                 self.signals.log_sig.emit('\t\t%.2f%s - %s' % (f_size, f_label,
                                                                                                filepath))
+                                                update_total = self.file_size(self.running_total)
+                                                self.signals.tally_sig.emit('%s%s' % (update_total['total'],
+                                                                                      update_total['label']))
                                             self.signals.log_sig.emit('\t\t' + ('+' * 100))
                                         if keep:
                                             self.signals.log_sig.emit('\t\tWORKING FILES TO KEEP:')
@@ -757,13 +766,20 @@ class gozer_destroyer(QtCore.QThread):
                                             for filepath, filesize in keep.items():
                                                 get_filesize = self.file_size(amount=filesize)
                                                 f_size = get_filesize['total']
+                                                self.running_total += float(f_size)
                                                 f_label = get_filesize['label']
                                                 self.signals.log_sig.emit('\t\t%.2f%s - %s' % (f_size, f_label,
                                                                                                filepath))
+                                                update_total = self.file_size(self.running_total)
+                                                self.signals.tally_sig.emit('%.2f%s' % (update_total['total'],
+                                                                                      update_total['label']))
                                             self.signals.log_sig.emit('\t\t' + ('+' * 100))
                                     self.signals.log_sig.emit('\t\t' + ('-' * 150))
 
         return destroyer
+
+    def destroy(self):
+        pass
 
 
 # ----------------------------------------------------------------------------------------------
@@ -801,6 +817,8 @@ class bullgozer(QtGui.QWidget):
         self.gozer_seeker.signals.destroyer_sig.connect(self.set_destroyer)
         self.gozer_seeker.signals.tally_sig.connect(self.running_tally)
         self.gozer_destroyer.signals.log_sig.connect(self.update_log)
+        self.gozer_destroyer.signals.destroyer_sig.connect(self.set_destroyer)
+        self.gozer_destroyer.signals.tally_sig.connect(self.running_tally)
 
         self.ui.seek_btn.clicked.connect(self.start_seeking)
         self.ui.load_btn.clicked.connect(self.load_destroyer)
