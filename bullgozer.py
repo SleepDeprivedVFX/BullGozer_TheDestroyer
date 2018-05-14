@@ -690,6 +690,7 @@ class gozer_destroyer(QtCore.QThread):
         if destroyer_file:
             if os.path.exists(destroyer_file):
                 self.signals.destroyer_sig.emit('%s' % destroyer_file)
+                self.destroyer_file = destroyer_file
                 destroy = open(destroyer_file, mode='r')
                 destroyer_json = js.load(destroy)
                 for project, collection in destroyer_json.items():
@@ -723,20 +724,6 @@ class gozer_destroyer(QtCore.QThread):
                                                                               update_total['label']))
                                         self.signals.log_sig.emit('\t\t' + ('+' * 100))
                                     self.signals.log_sig.emit('\t\t' + ('-' * 150))
-                                    #
-                                    # # This will go nicely in the actual destroyer.
-                                    # split_range = str(frame_range).strip('[').strip(']').split(':')
-                                    # start = split_range[0]
-                                    # end = split_range[1]
-                                    # start_num = int(start)
-                                    # end_num = int(end) + 1
-                                    # for cp in range(start_num, end_num):
-                                    #     check_name = str(path) + '/'
-                                    #     check_name += str(filename).replace('#' * pad, str(cp))
-                                    #     if os.path.exists(check_name):
-
-                                    # if os.path.exists(check_name):
-                                    #     for cp in range(start, end):
                                 if data['working_files']:
                                     working_files = data['working_files']
                                     for wf in working_files:
@@ -779,7 +766,65 @@ class gozer_destroyer(QtCore.QThread):
         return destroyer
 
     def destroy(self):
-        pass
+
+        self.signals.log_sig.emit('Bull Gozer the Destroyer of Files has begun to devour!')
+        self.signals.log_sig.emit('')
+        destroyer = None
+        destroyer_file = self.destroyer_file
+        if destroyer_file:
+            if os.path.exists(destroyer_file):
+                destroy = open(destroyer_file, mode='r')
+                destroyer_json = js.load(destroy)
+                for project, collection in destroyer_json.items():
+                    if project:
+                        self.signals.log_sig.emit('=' * 100)
+                        self.signals.log_sig.emit('%s' % project)
+                        self.signals.log_sig.emit('=' * 100)
+                        for path, data in collection.items():
+                            if data['working_files'] or data['caches']:
+                                self.signals.log_sig.emit('\t%s' % path)
+                                path_length = len(path)
+                                self.signals.log_sig.emit('\t' + ('-' * path_length))
+                                if data['caches']:
+                                    caches = data['caches']
+                                    self.signals.log_sig.emit('\t\tDELETING CACHE FILES...:')
+                                    for cache in caches:
+                                        pad = cache['padding']
+                                        size = cache['total_size']
+                                        frame_range = cache['frame_range']
+                                        frames = cache['total_frames']
+                                        filename = cache['file']
+
+                                        split_range = str(frame_range).strip('[').strip(']').split(':')
+                                        start = split_range[0]
+                                        end = split_range[1]
+                                        start_num = int(start)
+                                        end_num = int(end) + 1
+                                        for cp in range(start_num, end_num):
+                                            check_name = str(path) + '/'
+                                            check_name += str(filename).replace('#' * pad, str(cp))
+                                            if os.path.exists(check_name):
+                                                os.remove(check_name)
+                                                self.signals.log_sig.emit('%s - DELETED!' % check_name)
+
+                                if data['working_files']:
+                                    working_files = data['working_files']
+                                    for wf in working_files:
+                                        total_size = wf['total_size']
+                                        d_totals = self.file_size(amount=total_size)
+                                        total_size = d_totals['total']
+                                        label = d_totals['label']
+                                        destroy = wf['destroy']
+                                        if destroy:
+                                            self.signals.log_sig.emit('\t\tDELETING WORKING FILES...')
+                                            self.signals.log_sig.emit('\t\tBLOCK SIZE: %.2f%s' % (total_size, label))
+                                            for filepath, filesize in destroy.items():
+                                                if os.path.exists(filepath):
+                                                    os.remove(filepath)
+                                                    self.signals.log_sig.emit('%s - DELETED!')
+            self.signals.log_sig.emit('The deed is done.  Bull Gozer has finished destroying your files.')
+        else:
+            self.signals.log_sig.emit('THERE IS NO DESTROYER LOADED!')
 
 
 # ----------------------------------------------------------------------------------------------
@@ -842,6 +887,8 @@ class bullgozer(QtGui.QWidget):
 
     def the_destroyer_of_files(self):
         logger.info('Bull Gozer, The Destroyer of Files has been let loose into the file system.')
+        self.gozer_stream.edit.clear()
+        self.gozer_destroyer.start()
 
     def update_log(self, message=None):
         if message:
