@@ -280,9 +280,9 @@ class gozer_seeker(QtCore.QThread):
     def run(self, *args, **kwargs):
         self.seek()
 
-    # def run(self):
-    #     search_results = self.seek()
-
+    # --------------------------------------------------------------------------------------------------
+    # Kill the Seek process
+    # --------------------------------------------------------------------------------------------------
     def kill(self):
         self.oh_shit = False
 
@@ -297,7 +297,7 @@ class gozer_seeker(QtCore.QThread):
         # logger.debug('get_projects has begun.')
         count = len(self.project_list)
         projects = {}
-        if self.disabled_projects == 'True':
+        if self.disabled_projects == 'True' or self.disabled_projects == True:
             disabled_projects = True
         else:
             disabled_projects = False
@@ -342,6 +342,9 @@ class gozer_seeker(QtCore.QThread):
 
         return projects
 
+    # --------------------------------------------------------------------------------------------------
+    # Seek
+    # --------------------------------------------------------------------------------------------------
     def seek(self):
         """
         seek creates a file that must be loaded into the destory?
@@ -435,6 +438,9 @@ class gozer_seeker(QtCore.QThread):
                 self.signals.log_sig.emit('DESTROYER FILE: %s' % self.destroyer_file)
                 self.signals.destroyer_sig.emit(self.destroyer_file)
 
+    # --------------------------------------------------------------------------------------------------
+    # Build Destroyer
+    # --------------------------------------------------------------------------------------------------
     def build_destroyer(self, destroyer=None):
         dpath = None
         if destroyer:
@@ -448,6 +454,9 @@ class gozer_seeker(QtCore.QThread):
             json_destroyer.write(build)
         return dpath
 
+    # --------------------------------------------------------------------------------------------------
+    # Get File Size Setup
+    # --------------------------------------------------------------------------------------------------
     def file_size(self, amount=0):
         data = {}
         convert = str(int(amount))
@@ -476,6 +485,9 @@ class gozer_seeker(QtCore.QThread):
         data = {'total': total, 'label': size_label}
         return data
 
+    # --------------------------------------------------------------------------------------------------
+    # Catalog the files
+    # --------------------------------------------------------------------------------------------------
     def catalog_files(self, root=None, files=None, project=None):
         caches = []
         working_files = []
@@ -510,6 +522,9 @@ class gozer_seeker(QtCore.QThread):
                     break
         return {'caches':caches, 'working_files': working_files, 'project': project}
 
+    # --------------------------------------------------------------------------------------------------
+    # Return Sequences
+    # --------------------------------------------------------------------------------------------------
     def get_sequence(self, filepath=None):
         sequence = None
         total_size = 0.0
@@ -547,6 +562,9 @@ class gozer_seeker(QtCore.QThread):
                 pass
         return sequence
 
+    # --------------------------------------------------------------------------------------------------
+    # Find excess versions
+    # --------------------------------------------------------------------------------------------------
     def get_versions(self, filepath=None):
         vers = None
         all_versions = []
@@ -650,12 +668,15 @@ class gozer_destroyer(QtCore.QThread):
     def run(self, *args, **kwargs):
         self.destroy()
 
-    # def run(self):
-    #     search_results = self.seek()
-
+    # --------------------------------------------------------------------------------------------------
+    # Kill the Destroy Process
+    # --------------------------------------------------------------------------------------------------
     def kill(self):
         self.oh_shit = False
 
+    # --------------------------------------------------------------------------------------------------
+    # Get the File Size
+    # --------------------------------------------------------------------------------------------------
     def file_size(self, amount=0):
         data = {}
         convert = str(int(amount))
@@ -684,6 +705,9 @@ class gozer_destroyer(QtCore.QThread):
         data = {'total': total, 'label': size_label}
         return data
 
+    # --------------------------------------------------------------------------------------------------
+    # Load the Destroyer
+    # --------------------------------------------------------------------------------------------------
     def load_the_destroyer(self, destroyer_file=None):
         self.signals.log_sig.emit('Loading Destroyer...')
         destroyer = None
@@ -765,66 +789,89 @@ class gozer_destroyer(QtCore.QThread):
 
         return destroyer
 
+    # --------------------------------------------------------------------------------------------------
+    # The Destroyer
+    # --------------------------------------------------------------------------------------------------
     def destroy(self):
+        while self.oh_shit:
+            self.signals.log_sig.emit('Bull Gozer the Destroyer of Files has begun to devour!')
+            self.signals.log_sig.emit('Only OH SHIT! Can stop it now!')
+            destroyer = None
+            destroyer_file = self.destroyer_file
+            if destroyer_file:
+                if os.path.exists(destroyer_file):
+                    destroy = open(destroyer_file, mode='r')
+                    destroyer_json = js.load(destroy)
+                    for project, collection in destroyer_json.items():
+                        if project:
+                            self.signals.log_sig.emit('=' * 100)
+                            self.signals.log_sig.emit('%s' % project)
+                            self.signals.log_sig.emit('=' * 100)
+                            for path, data in collection.items():
+                                if data['working_files'] or data['caches']:
+                                    self.signals.log_sig.emit('\t%s' % path)
+                                    path_length = len(path)
+                                    self.signals.log_sig.emit('\t' + ('-' * path_length))
+                                    if data['caches']:
+                                        caches = data['caches']
+                                        self.signals.log_sig.emit('\t\tDELETING CACHE FILES...:')
+                                        for cache in caches:
+                                            pad = cache['padding']
+                                            size = cache['total_size']
+                                            frame_range = cache['frame_range']
+                                            frames = cache['total_frames']
+                                            filename = cache['file']
 
-        self.signals.log_sig.emit('Bull Gozer the Destroyer of Files has begun to devour!')
-        self.signals.log_sig.emit('')
-        destroyer = None
-        destroyer_file = self.destroyer_file
-        if destroyer_file:
-            if os.path.exists(destroyer_file):
-                destroy = open(destroyer_file, mode='r')
-                destroyer_json = js.load(destroy)
-                for project, collection in destroyer_json.items():
-                    if project:
-                        self.signals.log_sig.emit('=' * 100)
-                        self.signals.log_sig.emit('%s' % project)
-                        self.signals.log_sig.emit('=' * 100)
-                        for path, data in collection.items():
-                            if data['working_files'] or data['caches']:
-                                self.signals.log_sig.emit('\t%s' % path)
-                                path_length = len(path)
-                                self.signals.log_sig.emit('\t' + ('-' * path_length))
-                                if data['caches']:
-                                    caches = data['caches']
-                                    self.signals.log_sig.emit('\t\tDELETING CACHE FILES...:')
-                                    for cache in caches:
-                                        pad = cache['padding']
-                                        size = cache['total_size']
-                                        frame_range = cache['frame_range']
-                                        frames = cache['total_frames']
-                                        filename = cache['file']
+                                            split_range = str(frame_range).strip('[').strip(']').split(':')
+                                            start = split_range[0]
+                                            end = split_range[1]
+                                            start_num = int(start)
+                                            end_num = int(end) + 1
+                                            for cp in range(start_num, end_num):
+                                                check_name = str(path) + '/'
+                                                check_name += str(filename).replace('#' * pad, str(cp))
+                                                if os.path.exists(check_name):
+                                                    os.remove(check_name)
+                                                    self.signals.log_sig.emit('%s - DELETED!' % check_name)
+                                                    # Kill switch
+                                                    if not self.oh_shit:
+                                                        break
 
-                                        split_range = str(frame_range).strip('[').strip(']').split(':')
-                                        start = split_range[0]
-                                        end = split_range[1]
-                                        start_num = int(start)
-                                        end_num = int(end) + 1
-                                        for cp in range(start_num, end_num):
-                                            check_name = str(path) + '/'
-                                            check_name += str(filename).replace('#' * pad, str(cp))
-                                            if os.path.exists(check_name):
-                                                os.remove(check_name)
-                                                self.signals.log_sig.emit('%s - DELETED!' % check_name)
+                                            # Kill switch
+                                            if not self.oh_shit:
+                                                break
 
-                                if data['working_files']:
-                                    working_files = data['working_files']
-                                    for wf in working_files:
-                                        total_size = wf['total_size']
-                                        d_totals = self.file_size(amount=total_size)
-                                        total_size = d_totals['total']
-                                        label = d_totals['label']
-                                        destroy = wf['destroy']
-                                        if destroy:
-                                            self.signals.log_sig.emit('\t\tDELETING WORKING FILES...')
-                                            self.signals.log_sig.emit('\t\tBLOCK SIZE: %.2f%s' % (total_size, label))
-                                            for filepath, filesize in destroy.items():
-                                                if os.path.exists(filepath):
-                                                    os.remove(filepath)
-                                                    self.signals.log_sig.emit('%s - DELETED!')
-            self.signals.log_sig.emit('The deed is done.  Bull Gozer has finished destroying your files.')
-        else:
-            self.signals.log_sig.emit('THERE IS NO DESTROYER LOADED!')
+                                    if data['working_files']:
+                                        working_files = data['working_files']
+                                        for wf in working_files:
+                                            total_size = wf['total_size']
+                                            d_totals = self.file_size(amount=total_size)
+                                            total_size = d_totals['total']
+                                            label = d_totals['label']
+                                            destroy = wf['destroy']
+                                            if destroy:
+                                                self.signals.log_sig.emit('\t\tDELETING WORKING FILES...')
+                                                self.signals.log_sig.emit('\t\tBLOCK SIZE: %.2f%s' % (total_size, label))
+                                                for filepath, filesize in destroy.items():
+                                                    if os.path.exists(filepath):
+                                                        os.remove(filepath)
+                                                        self.signals.log_sig.emit('%s - DELETED!' % filepath)
+
+                                                        # Kill switch
+                                                        if not self.oh_shit:
+                                                            break
+
+                                        # Kill switch
+                                        if not self.oh_shit:
+                                            break
+
+                            # Kill switch
+                            if not self.oh_shit:
+                                break
+                    self.oh_shit = False
+                self.signals.log_sig.emit('The deed is done.  Bull Gozer has finished destroying your files.')
+            else:
+                self.signals.log_sig.emit('THERE IS NO DESTROYER LOADED!')
 
 
 # ----------------------------------------------------------------------------------------------
@@ -908,6 +955,9 @@ class bullgozer(QtGui.QWidget):
         if self.gozer_seeker.isRunning():
             self.gozer_seeker.oh_shit = False
             self.gozer_seeker.quit()
+        if self.gozer_destroyer.isRunning():
+            self.gozer_destroyer.oh_shit = False
+            self.gozer_destroyer.quit()
 
     def start_seeking(self):
         if not self.gozer_seeker.isRunning():
