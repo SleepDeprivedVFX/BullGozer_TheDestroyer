@@ -433,7 +433,6 @@ class gozer_seeker(QtCore.QThread):
 
                         self.signals.log_sig.emit('TOTALS: %.2f%s' % (totals, size_label))
                 get_total = self.file_size(grand_total)
-                print get_total
                 grand_total = get_total['total']
                 size_label = get_total['label']
                 self.signals.log_sig.emit('GRAND TOTAL: %.2f%s' % (grand_total, size_label))
@@ -474,11 +473,11 @@ class gozer_seeker(QtCore.QThread):
             size_label = 'Mb'
         elif count > 9 and count <= 12:
             base = 1024
-            exponent = 2
+            exponent = 3
             size_label = 'Gb'
         elif count > 12:
             base = 1024
-            exponent = 2
+            exponent = 4
             size_label = 'Tb'
         else:
             base = 1
@@ -506,7 +505,7 @@ class gozer_seeker(QtCore.QThread):
                 exponenet = 3
             elif label == 'Tb':
                 exponenet = 4
-            number = amount + math.pow(base, exponenet)
+            number = amount * math.pow(base, exponenet)
         return number
 
     # --------------------------------------------------------------------------------------------------
@@ -532,6 +531,10 @@ class gozer_seeker(QtCore.QThread):
                                 self.signals.log_sig.emit('Sequence Found!  %s  Total Frames: %s  Total Size: '
                                                           '%s' % (sequence['file'], sequence['total_frames'],
                                                                   sequence['total_size']))
+                                counter = float(sequence['total_size'])
+                                self.running_tally += counter
+                                post_tally = self.file_size(self.running_tally)
+                                self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
                 for ext in self.working_files:
                     if str(filename).endswith(ext):
                         self.signals.log_sig.emit('Working file %s found! %s' % (ext, filename))
@@ -540,6 +543,10 @@ class gozer_seeker(QtCore.QThread):
                         if versions:
                             if versions not in working_files:
                                 working_files.append(versions)
+                                counter = versions['total_size']
+                                self.running_tally += counter
+                                post_tally = self.file_size(self.running_tally)
+                                self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
                         # Do something with the data
                 # Kill switch
                 if not self.oh_shit:
@@ -567,11 +574,12 @@ class gozer_seeker(QtCore.QThread):
                     globname += '?'
                 matched_names = glob.glob(path + '/' + globname + ext)
                 matched_names = sorted(matched_names)
-                for f in matched_names:
-                    total_size += os.stat(f).st_size
-                    self.running_tally += os.stat(f).st_size
-                    post_tally = self.file_size(amount=self.running_tally)
-                    self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
+                # I think this is where I'm getting fucked on the counter.  It's counting everything
+                # for f in matched_names:
+                #     total_size += os.stat(f).st_size
+                #     self.running_tally += os.stat(f).st_size
+                #     post_tally = self.file_size(amount=self.running_tally)
+                #     self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
                 packed_name = globname.replace('?', '#') + ext
                 frame_count = len(matched_names)
                 seq_list = []
@@ -642,10 +650,10 @@ class gozer_seeker(QtCore.QThread):
                         current = versions[all_versions.index(v)]
                         destroy[current] = os.stat(current).st_size
                         total_size += os.stat(current).st_size
-
-                        self.running_tally += os.stat(current).st_size
-                        post_tally = self.file_size(amount=self.running_tally)
-                        self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
+                        # This is another place where the counter is failing
+                        # self.running_tally += os.stat(current).st_size
+                        # post_tally = self.file_size(amount=self.running_tally)
+                        # self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
                 else:
                     for v in versions:
                         keep[v] = os.stat(v).st_size
@@ -703,6 +711,7 @@ class gozer_destroyer(QtCore.QThread):
     # --------------------------------------------------------------------------------------------------
     def file_size(self, amount=0):
         data = {}
+        amount = int(amount)
         convert = str(int(amount))
         count = len(convert)
         if count > 3 and count <=6:
@@ -713,13 +722,13 @@ class gozer_destroyer(QtCore.QThread):
             base = 1024
             exponent = 2
             size_label = 'Mb'
-        elif count > 9 and count <= 12:
+        elif count > 8 and count <= 12:
             base = 1024
-            exponent = 2
+            exponent = 3
             size_label = 'Gb'
         elif count > 12:
             base = 1024
-            exponent = 2
+            exponent = 4
             size_label = 'Tb'
         else:
             base = 1
@@ -747,7 +756,7 @@ class gozer_destroyer(QtCore.QThread):
                 exponenet = 3
             elif label == 'Tb':
                 exponenet = 4
-            number = amount + math.pow(base, exponenet)
+            number = amount * math.pow(base, exponenet)
         return number
 
     # --------------------------------------------------------------------------------------------------
@@ -840,24 +849,30 @@ class gozer_destroyer(QtCore.QThread):
             self.signals.log_sig.emit('Only OH SHIT! Can stop it now!')
             destroyer = None
             destroyer_file = self.destroyer_file
+            self.signals.log_sig_debug.emit('DESTROYER FILE: %s' % destroyer)
             if destroyer_file:
                 if os.path.exists(destroyer_file):
+                    self.signals.log_sig_debug.emit('Destroyer_file exists')
                     destroy = open(destroyer_file, mode='r')
                     destroyer_json = js.load(destroy)
                     for project, collection in destroyer_json.items():
                         if project:
+                            self.signals.log_sig_debug.emit('PROJECT: %s' % project)
                             self.signals.log_sig.emit('=' * 100)
                             self.signals.log_sig.emit('%s' % project)
                             self.signals.log_sig.emit('=' * 100)
                             for path, data in collection.items():
                                 if data['working_files'] or data['caches']:
+                                    self.signals.log_sig_debug.emit('Working files or caches exist')
                                     self.signals.log_sig.emit('\t%s' % path)
                                     path_length = len(path)
                                     self.signals.log_sig.emit('\t' + ('-' * path_length))
                                     if data['caches']:
+                                        self.signals.log_sig_debug.emit('Caches exists...')
                                         caches = data['caches']
                                         self.signals.log_sig.emit('\t\tDELETING CACHE FILES...:')
                                         for cache in caches:
+                                            self.signals.log_sig_debug.emit('Start Cache Loop')
                                             pad = cache['padding']
                                             size = cache['total_size']
                                             frame_range = cache['frame_range']
@@ -870,48 +885,65 @@ class gozer_destroyer(QtCore.QThread):
                                             start_num = int(start)
                                             end_num = int(end) + 1
                                             for cp in range(start_num, end_num):
-                                                check_name = str(path) + '/'
-                                                check_name += str(filename).replace('#' * pad, str(cp))
-                                                if os.path.exists(check_name):
-                                                    os.remove(check_name)
-                                                    self.signals.log_sig.emit('%s - DELETED!' % check_name)
-                                                    # Kill switch
-                                                    if not self.oh_shit:
-                                                        break
+                                                self.signals.log_sig_debug.emit('Start CP (cache path) loop')
+                                                try:
+                                                    self.signals.log_sig_debug.emit('Enter Try statement')
+                                                    check_name = str(path) + '/'
+                                                    check_name += str(filename).replace('#' * pad, str(cp))
+                                                    if os.path.exists(check_name):
+                                                        self.signals.log_sig_debug.emit('Path exists! %s' % check_name)
+                                                        os.remove(check_name)
+                                                        self.signals.log_sig.emit('%s - DELETED!' % check_name)
+                                                        # Kill switch
+                                                        if not self.oh_shit:
+                                                            break
+                                                        self.signals.log_sig_debug.emit('Try end:')
+                                                except:
+                                                    self.signals.log_sig_debug.emit('CP Loops is fucked.')
+                                                    pass
 
                                             # Kill switch
                                             if not self.oh_shit:
                                                 break
 
                                     if data['working_files']:
+                                        self.signals.log_sig_debug.emit('Working Files exists...')
                                         working_files = data['working_files']
                                         for wf in working_files:
+                                            self.signals.log_sig_debug.emit('Start working files loop')
                                             total_size = wf['total_size']
                                             d_totals = self.file_size(amount=total_size)
                                             total_size = d_totals['total']
                                             label = d_totals['label']
                                             destroy = wf['destroy']
                                             if destroy:
+                                                self.signals.log_sig_debug.emit('Destroy detected!')
                                                 self.signals.log_sig.emit('\t\tDELETING WORKING FILES...')
                                                 self.signals.log_sig.emit('\t\tBLOCK SIZE: %.2f%s' % (total_size, label))
                                                 for filepath, filesize in destroy.items():
+                                                    self.signals.log_sig_debug.emit('destroy items loop started')
                                                     if os.path.exists(filepath):
+                                                        self.signals.log_sig_debug.emit('Path exists: %s' % filepath)
                                                         os.remove(filepath)
                                                         self.signals.log_sig.emit('%s - DELETED!' % filepath)
 
                                                         # Kill switch
                                                         if not self.oh_shit:
                                                             break
+                                                        self.signals.log_sig_debug.emit('End path delete')
 
                                         # Kill switch
                                         if not self.oh_shit:
                                             break
+                                        self.signals.log_sig_debug.emit('End loop')
 
                             # Kill switch
                             if not self.oh_shit:
                                 break
+                            self.signals.log_sig_debug.emit('End Cache or Working files loop')
                     self.oh_shit = False
                 self.signals.log_sig.emit('The deed is done.  Bull Gozer has finished destroying your files.')
+                self.signals.destroyer_sig.emit('')
             else:
                 self.signals.log_sig.emit('THERE IS NO DESTROYER LOADED!')
 
