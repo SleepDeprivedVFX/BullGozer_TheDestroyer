@@ -19,6 +19,12 @@ Disabled_Projects: bool(True/False) - If True & project_list is empty, then only
 programs: A comma list of software to specifically filter for
 '''
 
+"""
+Should create a more dynamic, less memory heavy JSON file.
+        with open(filepath, mode="r+") as file:
+            file.seek(os.stat(filepath).st_size - 1)
+            file.write(",{}]".format(json.dumps(dictionary)))
+"""
 import os
 import sys
 import platform
@@ -33,6 +39,7 @@ import json as js
 import re
 import glob
 import math
+
 
 # -----------------------------------------------------
 # Rebuilder
@@ -72,12 +79,13 @@ class rebuilder():
         working_files = '.nk,.mb,.ma,.mud,.hip,.psd,.psb,.ztl'
         programs = 'maya,nuke,zbrush,mudbox,houdini,softimage,photoshop'
         keep_count = 5
+        destroy_with_extreme_prejudice = ''
 
         debug_logging = True
 
         Disabled_Projects = True
         project_list = ''
-        folder_override = ''
+        shotgun_only = True
 
         raw_config.add_section('Parameters')
         raw_config.set('Parameters', 'programs', programs)
@@ -85,11 +93,13 @@ class rebuilder():
         raw_config.set('Parameters', 'search_folders', search_folders)
         raw_config.set('Parameters', 'caches', caches)
         raw_config.set('Parameters', 'keep_count', keep_count)
+        raw_config.set('Parameters', 'destroy_with_extreme_prejudice', destroy_with_extreme_prejudice)
 
         raw_config.add_section('Shotgun')
         raw_config.set('Shotgun', 'shotgun_key', sg_key)
         raw_config.set('Shotgun', 'shotgun_script_name', sg_script)
         raw_config.set('Shotgun', 'shotgun_url', sg_url)
+        raw_config.set('Shotgun', 'shotgun_only', shotgun_only)
 
         raw_config.add_section('BullGozer')
         raw_config.set('BullGozer', 'destroyer_path', destroyer_path)
@@ -104,7 +114,6 @@ class rebuilder():
         raw_config.add_section('Root')
         raw_config.set('Root', 'Disabled_Projects', Disabled_Projects)
         raw_config.set('Root', 'project_list', project_list)
-        raw_config.set('Root', 'folder_override', folder_override)
         logger.info('All variables set')
 
         with open(config_path, 'wb') as config:
@@ -151,6 +160,7 @@ cfg_log_path = config_file.get('BullGozer', 'log_path')
 cfg_shotgun_url = config_file.get('Shotgun', 'shotgun_url')
 cfg_shotgun_script = config_file.get('Shotgun', 'shotgun_script_name')
 cfg_shotgun_key = config_file.get('Shotgun', 'shotgun_key')
+cfg_shotgun_only = config_file.get('Shotgun', 'shotgun_only')
 cfg_caches = config_file.get('Parameters', 'caches')
 cfg_search_folders = config_file.get('Parameters', 'search_folders')
 cfg_working_files = config_file.get('Parameters', 'working_files')
@@ -159,7 +169,7 @@ cfg_debug_logging = config_file.get('Debugger', 'debug_logging')
 cfg_disabled_projects = config_file.get('Root', 'Disabled_Projects')
 cfg_project_list = config_file.get('Root', 'project_list')
 cfg_keep_count = config_file.get('Parameters', 'keep_count')
-cfg_folder_override = config_file.get('Root', 'folder_override')
+cfg_destroy_with_extreme_prejudice = config_file.get('Parameters', 'destroy_with_extreme_prejudice')
 cfg_destroyer_path = config_file.get('BullGozer', 'destroyer_path')
 prelog += 'Configuration variables set.\n'
 
@@ -195,7 +205,7 @@ shotgun_conf = {
 # Setup Logging System
 # ----------------------------------------------------------------------------------------------
 def init_log(filename="BullGozer.log"):
-    if cfg_debug_logging == 'True':
+    if cfg_debug_logging == 'True' or cfg_debug_logging == True:
         level = logger.DEBUG
     else:
         level = logger.INFO
@@ -265,7 +275,8 @@ class gozer_seeker(QtCore.QThread):
         self.disabled_projects = bool(cfg_disabled_projects)
         self.project_list = cfg_project_list.split(',')
         self.keep_count = int(cfg_keep_count)
-        self.folder_override = cfg_folder_override
+        self.destroy_with_extreme_prejudice = cfg_destroy_with_extreme_prejudice.split(',')
+        self.shotgun_only = bool(cfg_shotgun_only)
         self.destroyer_path = cfg_destroyer_path
         self.destroyer_file = None
         self.running_tally = 0.0
@@ -341,6 +352,12 @@ class gozer_seeker(QtCore.QThread):
             projects[proj['tank_name']] = proj['id']
 
         return projects
+
+    # --------------------------------------------------------------------------------------------------
+    # Get Projects
+    # --------------------------------------------------------------------------------------------------
+    def get_folders(self):
+        pass
 
     # --------------------------------------------------------------------------------------------------
     # Seek
@@ -685,7 +702,7 @@ class gozer_destroyer(QtCore.QThread):
         self.disabled_projects = bool(cfg_disabled_projects)
         self.project_list = cfg_project_list.split(',')
         self.keep_count = int(cfg_keep_count)
-        self.folder_override = cfg_folder_override
+        self.destroy_with_extreme_prejudice = cfg_destroy_with_extreme_prejudice.split(',')
         self.destroyer_path = cfg_destroyer_path
         self.destroyer_file = None
         self.running_total = 0.0
