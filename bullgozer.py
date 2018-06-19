@@ -272,11 +272,11 @@ class gozer_seeker(QtCore.QThread):
         self.working_files = cfg_working_files.split(',')
         self.search_folders = cfg_search_folders.split(',')
         self.programs = cfg_programs.split(',')
-        self.disabled_projects = bool(cfg_disabled_projects)
+        self.disabled_projects = cfg_disabled_projects
         self.project_list = cfg_project_list.split(',')
         self.keep_count = int(cfg_keep_count)
         self.destroy_with_extreme_prejudice = cfg_destroy_with_extreme_prejudice.split(',')
-        self.shotgun_only = bool(cfg_shotgun_only)
+        self.shotgun_only = cfg_shotgun_only
         self.destroyer_path = cfg_destroyer_path
         self.destroyer_file = None
         self.running_tally = 0.0
@@ -349,7 +349,9 @@ class gozer_seeker(QtCore.QThread):
 
         sg_projects = self.sg.find('Project', filters, fields)
         for proj in sg_projects:
-            projects[proj['tank_name']] = proj['id']
+            if proj['tank_name'] != None:
+                self.signals.log_sig_debug.emit('PROJECT: %s' % proj)
+                projects[proj['tank_name']] = proj['id']
 
         return projects
 
@@ -357,7 +359,12 @@ class gozer_seeker(QtCore.QThread):
     # Get Projects
     # --------------------------------------------------------------------------------------------------
     def get_folders(self):
-        pass
+        projects = {}
+        dirs = os.listdir(root_drive)
+        i = 1
+        for d in dirs:
+            projects[d] = i
+        return projects
 
     # --------------------------------------------------------------------------------------------------
     # Seek
@@ -379,7 +386,10 @@ class gozer_seeker(QtCore.QThread):
         self.running_tally = 0.0
         while self.oh_shit:
             try:
-                projects = self.get_projects()
+                if self.shotgun_only == True or self.shotgun_only == 'True':
+                    projects = self.get_projects()
+                else:
+                    projects = self.get_folders()
             except Exception, e:
                 self.signals.log_sig_debug.emit('Get Projects done fucked\' up! %s' % e)
             if root and projects:
@@ -400,7 +410,15 @@ class gozer_seeker(QtCore.QThread):
                                 # Kill switch
                                 if not self.oh_shit:
                                     break
+                    # This destroyer may also get replaced with a "live" JSON write
+                    # Actually.... maybe not?  Maybe?  If I loop it here, then it only writes per project, but
+                    # if I write it just after the self.catalog[roots] above, then it would basically write at the
+                    # end of each file catalog root, BUT it would lose the current project structure...
+                    # I got to thinking last night that I could set this up in multiple passes
+                    # One for the project and one for the data
+                    # so, the JsoN would add a project DB and then stuff data in afterwards
                     destroyer[project] = self.catalog
+
                     # Kill Switch
                     if not self.oh_shit:
                         break
@@ -453,6 +471,7 @@ class gozer_seeker(QtCore.QThread):
                 grand_total = get_total['total']
                 size_label = get_total['label']
                 self.signals.log_sig.emit('GRAND TOTAL: %.2f%s' % (grand_total, size_label))
+                # I may be replacing self.destroyer_file with a "live write" above
                 self.destroyer_file = self.build_destroyer(destroyer=destroyer)
                 self.signals.log_sig.emit('DESTROYER FILE: %s' % self.destroyer_file)
                 self.signals.destroyer_sig.emit(self.destroyer_file)

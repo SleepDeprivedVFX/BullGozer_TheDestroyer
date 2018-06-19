@@ -58,7 +58,7 @@ class Ui_Form(object):
         QtCore.QMetaObject.connectSlotsByName(Form)
 
     def retranslateUi(self, Form):
-        Form.setWindowTitle(QtGui.QApplication.translate("Form", "Form", None))
+        Form.setWindowTitle(QtGui.QApplication.translate("Form", "Bull Gozer", None))
         self.label.setText(QtGui.QApplication.translate("Form", "Bull Gozer - The Destroyer of Files", None))
         self.label_2.setText(QtGui.QApplication.translate("Form", "Destroyable Files Found:", None))
         self.seek_btn.setText(QtGui.QApplication.translate("Form", "Seek", None))
