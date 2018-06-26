@@ -499,15 +499,15 @@ class gozer_seeker(QtCore.QThread):
         data = {}
         convert = str(int(amount))
         count = len(convert)
-        if count > 3 and count <=6:
+        if 3 < count <= 6:
             base = 1024
             exponent = 1
             size_label = 'Kb'
-        elif count > 6 and count <= 9:
+        elif 6 < count <= 9:
             base = 1024
             exponent = 2
             size_label = 'Mb'
-        elif count > 9 and count <= 12:
+        elif 9 < count <= 12:
             base = 1024
             exponent = 3
             size_label = 'Gb'
@@ -532,16 +532,16 @@ class gozer_seeker(QtCore.QThread):
             base = 1024
             if label == 'b':
                 base = 1
-                exponenet = 1
+                exponent = 1
             elif label == 'Kb':
-                exponenet = 1
+                exponent = 1
             elif label == 'Mb':
-                exponenet = 2
+                exponent = 2
             elif label == 'Gb':
-                exponenet = 3
+                exponent = 3
             elif label == 'Tb':
-                exponenet = 4
-            number = amount * math.pow(base, exponenet)
+                exponent = 4
+            number = amount * math.pow(base, exponent)
         return number
 
     # --------------------------------------------------------------------------------------------------
@@ -587,7 +587,7 @@ class gozer_seeker(QtCore.QThread):
                 # Kill switch
                 if not self.oh_shit:
                     break
-        return {'caches':caches, 'working_files': working_files, 'project': project}
+        return {'caches': caches, 'working_files': working_files, 'project': project}
 
     # --------------------------------------------------------------------------------------------------
     # Return Sequences
@@ -640,8 +640,6 @@ class gozer_seeker(QtCore.QThread):
         destroy = {}
         total_size = 0.0
 
-        # TODO: Somewhere in this structure is where the Extreme Prejudice needs to enact its vengence on the files.
-
         self.signals.log_sig_debug.emit('Getting Version Info...')
         if filepath:
             filepath = filepath.replace('\\', '/')
@@ -665,7 +663,15 @@ class gozer_seeker(QtCore.QThread):
                 self.signals.log_sig_debug.emit('Version count: %s' % version_count)
                 keep_count = version_count - self.keep_count + 1
                 self.signals.log_sig_debug.emit('KEEP COUNT: %s' % keep_count)
-                if version_count > keep_count:
+
+                for extreme in self.destroy_with_extreme_prejudice:
+                    if extreme in path:
+                        prejudice = extreme
+                        break
+                    else:
+                        # Arbitrary value that will never be found in a path.
+                        prejudice = '*******************'
+                if version_count > keep_count and prejudice not in path:
                     self.signals.log_sig_debug.emit('Version Count: %s  Keep Count: %s' % (version_count, keep_count))
                     for v in versions:
                         get_version_nums = re.findall(r'\d+', v)[-1]
@@ -692,6 +698,11 @@ class gozer_seeker(QtCore.QThread):
                         # self.running_tally += os.stat(current).st_size
                         # post_tally = self.file_size(amount=self.running_tally)
                         # self.signals.tally_sig.emit('%.2f%s' % (post_tally['total'], post_tally['label']))
+                elif prejudice in path:
+                    for v in versions:
+                        destroy[v] = os.stat(v).st_size
+                        self.signals.log_sig.emit('DESTROY WITH EXTREME PREJUDICE: %s' % v)
+                        self.signals.log_sig.emit('SIZE: %s' % os.stat(v).st_size)
                 else:
                     for v in versions:
                         keep[v] = os.stat(v).st_size
@@ -752,15 +763,15 @@ class gozer_destroyer(QtCore.QThread):
         amount = int(amount)
         convert = str(int(amount))
         count = len(convert)
-        if count > 3 and count <=6:
+        if 3 < count <= 6:
             base = 1024
             exponent = 1
             size_label = 'Kb'
-        elif count > 6 and count <= 9:
+        elif 6 < count <= 9:
             base = 1024
             exponent = 2
             size_label = 'Mb'
-        elif count > 8 and count <= 12:
+        elif 8 < count <= 12:
             base = 1024
             exponent = 3
             size_label = 'Gb'
@@ -785,16 +796,18 @@ class gozer_destroyer(QtCore.QThread):
             base = 1024
             if label == 'b':
                 base = 1
-                exponenet = 1
+                exponent = 1
             elif label == 'Kb':
-                exponenet = 1
+                exponent = 1
             elif label == 'Mb':
-                exponenet = 2
+                exponent = 2
             elif label == 'Gb':
-                exponenet = 3
+                exponent = 3
             elif label == 'Tb':
-                exponenet = 4
-            number = amount * math.pow(base, exponenet)
+                exponent = 4
+            else:
+                exponent = 1
+            number = amount * math.pow(base, exponent)
         return number
 
     # --------------------------------------------------------------------------------------------------
@@ -931,7 +944,10 @@ class gozer_destroyer(QtCore.QThread):
                                                     if os.path.exists(check_name):
                                                         self.signals.log_sig_debug.emit('Path exists! %s' % check_name)
                                                         os.remove(check_name)
-                                                        self.signals.log_sig.emit('%s - DELETED!' % check_name)
+                                                        if os.path.exists(check_name):
+                                                            self.signals.log_sig.emit('%s FAILED TO DELETE!' % check_name)
+                                                        else:
+                                                            self.signals.log_sig.emit('%s - DELETED!' % check_name)
                                                         # Kill switch
                                                         if not self.oh_shit:
                                                             break
@@ -963,8 +979,11 @@ class gozer_destroyer(QtCore.QThread):
                                                     if os.path.exists(filepath):
                                                         self.signals.log_sig_debug.emit('Path exists: %s' % filepath)
                                                         os.remove(filepath)
-                                                        self.signals.log_sig.emit('%s - DELETED!' % filepath)
 
+                                                        if os.path.exists(filepath):
+                                                            self.signals.log_sig.emit('%s FAILED TO DELETE!' % filepath)
+                                                        else:
+                                                            self.signals.log_sig.emit('%s - DELETED!' % filepath)
                                                         # Kill switch
                                                         if not self.oh_shit:
                                                             break
