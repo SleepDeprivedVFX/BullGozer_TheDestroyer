@@ -640,6 +640,8 @@ class gozer_seeker(QtCore.QThread):
         destroy = {}
         total_size = 0.0
 
+        # TODO: Somewhere in this structure is where the Extreme Prejudice needs to enact its vengence on the files.
+
         self.signals.log_sig_debug.emit('Getting Version Info...')
         if filepath:
             filepath = filepath.replace('\\', '/')
